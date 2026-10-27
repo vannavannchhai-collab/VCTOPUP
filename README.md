@@ -67,6 +67,64 @@ npm start         # Express serves dist/ + the API on port 4000
 Use `PORT=8080 npm start` to change the port. In production the whole app is served from
 **one origin**, so no proxy is needed.
 
+### Deploying to Vercel
+
+Vercel is **not** a VPS. It never runs `npm start` and there is no long-lived Express
+process. A deployment is a **static build** plus **on-demand Functions**, and the CDN
+routes requests from metadata produced at build time — not by looking for a file on a
+running server's disk. Three files in this repo express that split:
+
+| File | Role |
+| --- | --- |
+| `vercel.json` | Pins the Vite preset, the `dist/` output directory and the two rewrites |
+| `api/index.js` | Vercel Function — default-exports the Express `(req, res)` handler |
+| `server/app.js` | The Express app itself, with **no `listen()`**, shared by both hosts |
+| `server/index.js` | Local/VPS entry point that calls `listen()` |
+
+The two rewrites (order matters — first match wins):
+
+```json
+"rewrites": [
+  { "source": "/api/:path*", "destination": "/api" },
+  { "source": "/:path*",     "destination": "/index.html" }
+]
+```
+
+1. `/api/*` → the Function, so `/api/bootstrap`, `/api/orders`, `/api/admin/*` resolve.
+2. Everything else → `index.html`, so React Router owns `/shop`, `/product/:slug`,
+   `/admin`, `/track` … even on refresh or direct navigation.
+3. Real files (`/assets/*`, `/img/*`, `/favicon.svg`) are matched by Vercel's
+   **File System Routes, which run before rewrites**, so the catch-all never eats them.
+
+**Deploy checklist**
+
+1. Import the repo at [vercel.com/new](https://vercel.com/new) (or run `vercel --prod`).
+2. In **Project Settings → Build and Deployment** verify:
+   - Root Directory = `./` (the repo root, not `src/`)
+   - Framework Preset = **Vite** (not "Other" — see below)
+   - Build Command = `npm run build`, Output Directory = `dist`
+   (these three are already pinned in `vercel.json`).
+3. Add `VC_SECRET` in **Environment Variables**.
+4. Deploy and smoke-test: `/`, `/shop` (refresh it directly), a product URL, and
+   `/api/health` which must return `{"ok":true,...}` JSON.
+
+> ⚠️ **Demo data on Vercel is ephemeral.** `data/db.json` is a local JSON file and a
+> Function's project filesystem is read-only, so on Vercel the store writes to
+> `/tmp/vctopup-data/db.json`. Cold starts re-seed it and instances do not share it,
+> so orders may disappear. Before taking real orders, replace `server/db.js` with a
+> hosted database (Vercel Postgres / Neon / Turso / Supabase).
+
+**If you still see `404: NOT_FOUND`**
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| Every URL 404s but the build says Ready | Framework Preset = "Other" → no routing manifest was generated | Set the preset to Vite and redeploy |
+| Output Directory is wrong (e.g. `build`, `public`) | Vercel serves an empty folder | Set it to `dist` |
+| `.vercel.app` works, custom domain 404s | DNS / domain assignment | Fix the domain, not the code |
+| `/` works, `/shop` 404s on refresh | Missing SPA catch-all | Keep rewrite #2 |
+| UI loads but API calls 404 / return HTML | Missing Function or missing API rewrite | Keep `api/index.js` + rewrite #1 |
+| The deployment URL itself 404s | Deployment deleted, wrong URL, or deployment protection | Check the Deployments list and access role |
+
 ### Environment variables (optional)
 
 ```bash
@@ -75,9 +133,11 @@ cp .env.example .env
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PORT` | `4000` | Express / production server port |
+| `PORT` | `4000` | Express / production server port (ignored on Vercel) |
 | `VC_SECRET` | demo string | Secret used to sign auth tokens — **change this in production** |
-| `NODE_ENV` | — | set to `production` for production mode |
+| `VC_DATA_DIR` | `./data` locally, `/tmp/vctopup-data` on Vercel | Where the demo JSON store writes |
+| `VERCEL` | set by Vercel | Detected automatically — switches off `listen()`/static serving and enables the `/tmp` store |
+| `NODE_ENV` | — | set to `production` for local production mode; Vercel sets it for you |
 
 ---
 
@@ -122,6 +182,9 @@ No database server, no Docker, no external services required.
 ```
 ├── index.html                 # HTML shell, meta tags, favicon
 ├── vite.config.js             # dev server (0.0.0.0) + /api proxy
+├── vercel.json                # Vite preset, dist output, API + SPA rewrites
+├── api/
+│   └── index.js               # Vercel Function: exports the Express handler
 ├── public/
 │   ├── favicon.svg
 │   └── img/                   # generated 3D artwork (transparent WebP)
@@ -138,7 +201,8 @@ No database server, no Docker, no external services required.
 │   │                          # Login, Account, Admin, Contact, About, 404
 │   └── styles/                # base.css, layout.css, pages.css
 └── server/
-    ├── index.js               # all REST routes + static hosting
+    ├── app.js                 # Express app definition (all REST routes, no listen)
+    ├── index.js               # local/VPS entry point — calls app.listen()
     ├── db.js                  # JSON store, auth helpers, demo data generator
     └── seed.js                # catalog, categories, promos, reviews, FAQs, settings
 ```
