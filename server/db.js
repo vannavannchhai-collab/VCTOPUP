@@ -6,7 +6,19 @@ import { categories, products, promos, reviews, faqs, paymentMethods, settings }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '..');
-const DATA_DIR = path.join(ROOT, 'data');
+
+/**
+ * Where the demo JSON store lives.
+ *
+ * A Vercel Function's project filesystem is read-only — only /tmp is writable.
+ * Writing to ROOT/data there throws EROFS, which surfaces as a 500 (and, when
+ * it happens during bootstrap, as a broken/404-looking deployment). /tmp keeps
+ * the demo functional, but it is per-instance and wiped on cold starts, so it
+ * is NOT durable. For real orders, point VC_DATA_DIR at a mounted volume or,
+ * much better, replace this module with Postgres / Vercel KV / Turso.
+ */
+const DATA_DIR = process.env.VC_DATA_DIR
+  || (process.env.VERCEL ? '/tmp/vctopup-data' : path.join(ROOT, 'data'));
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
 export const SECRET = process.env.VC_SECRET || 'vctopup-demo-secret-change-me-in-production';
@@ -151,14 +163,21 @@ export function getDB() {
     console.error('[db] failed to read, re-seeding:', err.message);
   }
   cache = seed();
-  saveDB();
+  persist();
   return cache;
+}
+
+/** Never let a read-only /tmp take the whole Function down. */
+function persist() {
+  try { saveDB(); }
+  catch (err) { console.error('[db] could not persist store (running in memory):', err.message); }
 }
 
 export function saveDB() {
   if (!cache) return;
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const tmp = `${DB_FILE}.tmp`;
+  // Unique temp name: serverless instances can cold-start and write concurrently.
+  const tmp = `${DB_FILE}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));
   fs.renameSync(tmp, DB_FILE);
 }
@@ -166,7 +185,7 @@ export function saveDB() {
 export function mutate(fn) {
   const db = getDB();
   const result = fn(db);
-  saveDB();
+  persist();
   return result;
 }
 
