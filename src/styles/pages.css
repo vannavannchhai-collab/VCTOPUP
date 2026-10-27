@@ -397,3 +397,14 @@
   .pay-qr-box { width: 220px; height: 220px; }
   .pay-preview { flex-direction: column; text-align: center; }
 }
+
+/* Admin → Real integrations: credential health + provider SKU mapping */
+.real-integration-panel .order-table-wrap { max-height: 620px; overflow: auto; }
+.real-integration-panel .data-table input.input { min-height: 36px; padding: 7px 10px; font-size: .78rem; }
+.real-integration-panel .data-table .tiny { max-width: 230px; word-break: break-word; }
+.real-integration-panel details { max-height: 230px; overflow: auto; }
+.real-integration-panel .badge { white-space: nowrap; }
+@media (max-width: 700px) {
+  .real-integration-panel .form-grid { grid-template-columns: 1fr; }
+  .real-integration-panel .order-table-wrap { max-height: 480px; }
+}

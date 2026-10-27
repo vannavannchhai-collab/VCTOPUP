@@ -8,6 +8,7 @@
  * IS such a function, but we wrap it explicitly so the contract is obvious
  * and so we never accidentally call app.listen() in a serverless runtime.
  */
+import '../server/env.js';
 import app from '../server/app.js';
 import { ensureStore } from '../server/db.js';
 

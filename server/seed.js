@@ -378,15 +378,15 @@ export const paymentMethods = [
 ];
 
 /**
- * Every package gets a deterministic partner SKU. Real game partners use their
- * own product codes, so override these at deploy time with PARTNER_SKU_MAP:
- *   {"mobile-legends:86-diamonds":"MOONTON_MLBB_86","free-fire:100-diamonds":"GARENA_FF_100"}
- * Keys are `<productSlug>:<packageId>`; a bare `<productSlug>` key is a fallback.
- * See server/partner.js `resolveSku()`.
+ * Demo packages intentionally have NO real partner SKU. A real deployment must
+ * map each package to the provider's numeric catalogue ID in
+ * Admin → Real integrations (saved on the product as `partnerSku`), or set
+ * SHOP2TOPUP_ITEM_MAP / PARTNER_SKU_MAP. The live gate refuses unmapped items,
+ * so a demo label can never be mistaken for a real diamond product.
  */
 for (const p of products) {
   for (const pk of p.packages) {
-    if (!pk.partnerSku) pk.partnerSku = `${p.slug}:${pk.id}`;
+    if (pk.partnerSku === undefined) pk.partnerSku = null;
   }
 }
 

@@ -9,6 +9,7 @@
  * module scope in a function bundle either does nothing useful or leaves an
  * orphan port with no router attached — which is one common source of 404s.
  */
+import './env.js';
 import express from 'express';
 import cors from 'cors';
 import path from 'node:path';
@@ -18,7 +19,10 @@ import {
   signToken, verifyToken, uid, orderCode, publicUser,
   readFresh, transact, ensureStore,
 } from './db.js';
-import { integrationStatus, assertLiveReady, LiveNotReadyError, isLive } from './config.js';
+import { integrationStatus, assertLiveReady, LiveNotReadyError, isLive, partnerConfig } from './config.js';
+import { isShop2TopupItemId } from './credentials.js';
+import { validateOrderRecipients } from './partner.js';
+import { testConnection as testProviderConnection, getCatalog as getProviderCatalog } from './shop2topup.js';
 import {
   attachPayment, publicPayment, verifyPayment, deliverOrder,
   simulateSandboxPayment, refreshPaymentQR, adminConfirmPayment, handlePartnerCallback,
@@ -83,6 +87,7 @@ function normalizeOrderItems(db, rawItems) {
       productId: p.id, productSlug: p.slug, productName: p.name,
       productIcon: p.icon, productColors: p.colors,
       packageId: pk.id, packageLabel: pk.label, price: pk.price,
+      partnerSku: pk.partnerSku || '',
       qty, accountId: clean(raw.accountId).slice(0, 80),
       lineTotal: round(pk.price * qty),
     };
@@ -185,7 +190,7 @@ api.post('/orders', asyncH(async (req, res) => {
 
   // HARD GATE: never accept a real-money order until verification, storage and
   // fulfillment are all configured. Fails closed rather than silently demo-ing.
-  try { assertLiveReady(); }
+  try { assertLiveReady(items); }
   catch (err) {
     return fail(res, err.status || 503, err.message, { blockers: err.blockers || [] });
   }
@@ -199,6 +204,22 @@ api.post('/orders', asyncH(async (req, res) => {
     appliedPromo = result.promo.code;
   }
   const total = round(Math.max(0, subtotal - discount));
+
+  // In live mode, verify the game account against the REAL provider before we
+  // show a payable KHQR. Wrong IDs must not turn into paid, undeliverable orders.
+  if (isLive) {
+    let recipientCheck;
+    try {
+      recipientCheck = await validateOrderRecipients(items, {
+        customer: { name, phone, email },
+        currency: integrationStatus().qrCurrency,
+      });
+    } catch (err) {
+      console.error('[order] recipient validation error', err);
+      return fail(res, 422, 'Could not verify the game account with the delivery provider. Please try again.');
+    }
+    if (!recipientCheck.ok) return fail(res, 422, recipientCheck.message);
+  }
   const now = new Date().toISOString();
   const isWallet = method === 'wallet';
   let payer = req.user || null;
@@ -370,13 +391,15 @@ api.post('/payments/:code/refresh', asyncH(async (req, res) => {
 /** Signed partner callback for asynchronous delivery confirmations. */
 api.post('/payments/partner-callback', asyncH(async (req, res) => {
   await ensureStore();
+  await readFresh();
   const r = await handlePartnerCallback(
     req.rawBody || JSON.stringify(req.body || {}),
-    req.headers['x-signature'] || '',
-    req.headers['x-timestamp'] || ''
+    req.headers['x-signature'] || req.headers['x-shop2topup-signature'] || '',
+    req.headers['x-timestamp'] || '',
+    req.headers
   );
   if (r.error) return fail(res, r.status || 400, r.error);
-  res.json({ ok: true, received: true });
+  res.json({ ok: true, received: true, duplicate: Boolean(r.duplicate), test: Boolean(r.test) });
 }));
 
 api.get('/orders/:code', (req, res) => {
@@ -605,6 +628,67 @@ api.get('/admin/integrations', asyncH(async (_req, res) => {
     recentSecurityEvents: (db.securityEvents || []).slice(0, 12),
   } });
 }));
+
+/** Verify the real provider account without ever returning a credential. */
+api.get('/admin/integrations/connection', asyncH(async (_req, res) => {
+  await ensureStore();
+  const provider = partnerConfig().provider;
+  if (provider !== 'shop2topup') {
+    return res.json({ ok: true, data: {
+      provider, configured: integrationStatus().checks.partnerCredentials,
+      reachable: false, reason: 'Remote account check is available for Shop2Topup only',
+    } });
+  }
+  res.json({ ok: true, data: await testProviderConnection() });
+}));
+
+/** Browse real catalogue IDs so an admin can map each package safely. */
+api.get('/admin/integrations/catalog', asyncH(async (req, res) => {
+  await ensureStore();
+  const provider = partnerConfig().provider;
+  if (provider !== 'shop2topup') return fail(res, 400, 'Catalogue browser is available for Shop2Topup only');
+  if (!integrationStatus().checks.partnerCredentials) {
+    return fail(res, 422, 'Set a real SHOP2TOPUP_API_KEY in the server environment before loading the provider catalogue.');
+  }
+  const categoryId = clean(req.query.categoryId) || shop2CategoryId();
+  try {
+    res.json({ ok: true, data: await getProviderCatalog(categoryId) });
+  } catch (err) {
+    return fail(res, 422, `Could not load provider catalogue: ${err.message}`);
+  }
+}));
+
+/** Atomically map our packages to real provider item IDs. No secrets here. */
+api.put('/admin/integrations/sku-map', asyncH(async (req, res) => {
+  await ensureStore();
+  const map = req.body?.map;
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return fail(res, 400, 'A JSON object of package keys → item IDs is required');
+  const provider = partnerConfig().provider;
+  for (const [key, raw] of Object.entries(map)) {
+    const value = clean(raw);
+    if (value && provider === 'shop2topup' && !isShop2TopupItemId(value)) {
+      return fail(res, 400, `${key}: Shop2Topup item IDs must be positive numbers`);
+    }
+    if (key.length > 120 || value.length > 120) return fail(res, 400, 'Mapping keys or values are too long');
+  }
+  const updated = await transact((d) => {
+    let count = 0;
+    for (const p of d.products) {
+      for (const pk of p.packages || []) {
+        const key = `${p.slug}:${pk.id}`;
+        if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
+        pk.partnerSku = clean(map[key]) || null;
+        count += 1;
+      }
+    }
+    return count;
+  });
+  res.json({ ok: true, data: { updated, integration: integrationStatus() }, message: `${updated} package mappings saved` });
+}));
+
+function shop2CategoryId() {
+  return String(process.env.SHOP2TOPUP_CATEGORY_ID || process.env.S2T_CATEGORY_ID || '').trim();
+}
 
 api.get('/admin/products', (_req, res) => res.json({ ok: true, data: getDB().products }));
 

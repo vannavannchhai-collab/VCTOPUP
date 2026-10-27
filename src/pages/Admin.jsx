@@ -4,13 +4,14 @@ import {
   LayoutDashboard, ShoppingBag, Package, Ticket, Users, Inbox, Settings,
   ArrowUpRight, TrendingUp, DollarSign, Clock3, CheckCircle2, Plus, Search,
   X, Save, Trash2, Eye, ShieldCheck, Sparkles, ExternalLink, Loader2,
-  AlertTriangle, Mail, Send, Percent, Edit3, RefreshCw,
+  AlertTriangle, Mail, Send, Percent, Edit3, RefreshCw, PlugZap, ListTree,
+  KeyRound, Webhook, Boxes,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { api, qs } from '../lib/api.js';
 import { usd, dateShort, compact, statusTone } from '../lib/format.js';
 import Icon, { ICONS } from '../components/Icon.jsx';
-import { ProductArt, StatusBadge } from '../components/ui.jsx';
+import { ProductArt, StatusBadge, CopyButton } from '../components/ui.jsx';
 
 const TABS = [
   { id: 'overview', key: 'ad.overview', icon: LayoutDashboard },
@@ -19,6 +20,7 @@ const TABS = [
   { id: 'promos', key: 'ad.promos', icon: Ticket },
   { id: 'users', key: 'ad.users', icon: Users },
   { id: 'messages', key: 'ad.messages', icon: Inbox },
+  { id: 'integrations', key: 'ad.integrationSetup', icon: PlugZap },
   { id: 'settings', key: 'ad.settings', icon: Settings },
 ];
 
@@ -46,6 +48,11 @@ export default function Admin() {
   const [promoModal, setPromoModal] = useState(null);
   const [settingsForm, setSettingsForm] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [skuDraft, setSkuDraft] = useState({});
+  const [catalog, setCatalog] = useState(null);
+  const [catalogCategory, setCatalogCategory] = useState('');
+  const [connection, setConnection] = useState(null);
+  const [integrationBusy, setIntegrationBusy] = useState(false);
 
   const load = useCallback(async (which) => {
     setLoading(true);
@@ -56,6 +63,17 @@ export default function Admin() {
       }
       if (which === 'orders') setOrders((await api.get(`/admin/orders${qs({ q: orderSearch, status: statusFilter })}`)).data);
       if (which === 'products') setProducts((await api.get('/admin/products')).data);
+      if (which === 'integrations') {
+        const [i, p] = await Promise.all([api.get('/admin/integrations'), api.get('/admin/products')]);
+        setIntegrations(i.data);
+        setProducts(p.data);
+        const draft = {};
+        for (const product of p.data) {
+          for (const pk of product.packages || []) draft[`${product.slug}:${pk.id}`] = pk.partnerSku || '';
+        }
+        setSkuDraft(draft);
+        setCatalogCategory((current) => current || i.data.providerCategoryId || '');
+      }
       if (which === 'promos') setPromos((await api.get('/admin/promos')).data);
       if (which === 'users') setUsers((await api.get('/admin/users')).data);
       if (which === 'messages') setMessages((await api.get('/admin/messages')).data);
@@ -104,6 +122,44 @@ export default function Admin() {
     } catch (err) { notify(err.message, 'error'); }
   };
 
+  const testRealAccount = async () => {
+    setIntegrationBusy(true);
+    try {
+      const r = await api.get('/admin/integrations/connection');
+      setConnection(r.data);
+      notify(r.data.reachable ? t('ad.accountConnected') : t('ad.accountNotConnected'), r.data.reachable ? 'success' : 'error');
+    } catch (err) { notify(err.message, 'error'); }
+    finally { setIntegrationBusy(false); }
+  };
+
+  const loadProviderCatalog = async () => {
+    setIntegrationBusy(true);
+    try {
+      const r = await api.get(`/admin/integrations/catalog${qs({ categoryId: catalogCategory })}`);
+      setCatalog(r.data);
+      notify(t('ad.saved'), 'success');
+    } catch (err) { notify(err.message, 'error'); }
+    finally { setIntegrationBusy(false); }
+  };
+
+  const saveSkuMap = async () => {
+    const map = {};
+    for (const p of products) {
+      for (const pk of p.packages || []) {
+        const key = `${p.slug}:${pk.id}`;
+        map[key] = String(skuDraft[key] ?? '').trim();
+      }
+    }
+    setIntegrationBusy(true);
+    try {
+      const r = await api.put('/admin/integrations/sku-map', { map });
+      setIntegrations(r.data.integration);
+      notify(t('ad.saved'), 'success');
+      load('integrations');
+    } catch (err) { notify(err.message, 'error'); }
+    finally { setIntegrationBusy(false); }
+  };
+
   const deleteProduct = async (p) => {
     if (!window.confirm(t('ad.confirmDelete'))) return;
     try { await api.del(`/admin/products/${p.id}`); notify(t('ad.saved'), 'success'); load('products'); loadBoot(); }
@@ -136,11 +192,13 @@ export default function Admin() {
       idLabel: { kh: 'លេខសម្គាល់អ្នកលេង (Player ID)', en: 'Player ID' },
       desc: { kh: f.descKh, en: f.descEn },
       instructions: { kh: ['ជ្រើសរើសកញ្ចប់', 'បញ្ចូលលេខគណនី', 'បង់ប្រាក់', 'ទទួលឥណទានភ្លាមៗ'], en: ['Choose a package', 'Enter your account ID', 'Pay', 'Receive credits instantly'] },
+      // Editing a product must not wipe the real provider item IDs mapped in
+      // the Integrations tab; preserve each package's existing partnerSku.
       packages: [
         { id: 'small', label: `Small · ${f.currency}`, price: Number(f.basePrice) || 1, oldPrice: null, bonus: null, popular: false },
         { id: 'medium', label: `Medium · ${f.currency}`, price: +((Number(f.basePrice) || 1) * 2.4).toFixed(2), oldPrice: null, bonus: null, popular: true },
         { id: 'large', label: `Large · ${f.currency}`, price: +((Number(f.basePrice) || 1) * 4.8).toFixed(2), oldPrice: null, bonus: null, popular: false },
-      ],
+      ].map((pkg, i) => ({ ...pkg, partnerSku: f.packages?.[i]?.partnerSku || null })),
     };
     try {
       if (f.id) await api.put(`/admin/products/${f.id}`, payload);
@@ -388,6 +446,125 @@ export default function Admin() {
     </div>
   );
 
+  const renderIntegrations = () => {
+    const s = integrations;
+    const items = catalog?.items || [];
+    const allPackages = products.flatMap((p) => (p.packages || []).map((pk) => ({ p, pk, key: `${p.slug}:${pk.id}` })));
+    return (
+      <div className="stack gap-20 real-integration-panel">
+        <div className="panel integration-panel">
+          <div className="panel-head">
+            <h2 style={{ fontSize: '1rem' }}><PlugZap size={17} /> {t('ad.realConnections')}</h2>
+            <span className={`badge ${s?.live ? (s.ready ? 'badge-green' : 'badge-red') : 'badge-violet'}`}>
+              {s?.live ? (s.ready ? t('ad.liveReady') : `LIVE · ${s.blockers.length} ${t('ad.liveBlockers')}`) : 'SANDBOX'}
+            </span>
+          </div>
+          <div className="panel-body">
+            <div className="alert alert-warn" style={{ marginBottom: 16 }}>
+              <KeyRound size={15} /> {t('ad.credentialsNote')}
+            </div>
+            <div className="integration-grid">
+              {Object.entries(s?.checks || {}).map(([k, ok]) => (
+                <div className={`integration-check ${ok ? 'on' : 'off'}`} key={k}>
+                  {ok ? <CheckCircle2 size={14} /> : <X size={14} />} <span>{k}</span>
+                </div>
+              ))}
+            </div>
+            {!!s?.blockers?.length && <div className="alert alert-error" style={{ marginTop: 14 }}><AlertTriangle size={15} /> {t('ad.liveBlockers')}: {s.blockers.join(', ')}</div>}
+            <div className="form-grid" style={{ marginTop: 16 }}>
+              <div className="form-group">
+                <label className="field-label">{t('ad.provider')}</label>
+                <div className="input" style={{ display: 'flex', alignItems: 'center', minHeight: 42 }}>{s?.providerLabel || '—'}</div>
+              </div>
+              <div className="form-group">
+                <label className="field-label">{t('ad.webhookUrl')}</label>
+                <div className="row gap-8">
+                  <div className="input grow" style={{ display: 'flex', alignItems: 'center', minHeight: 42, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s?.webhookUrl || '—'}</div>
+                  {s?.webhookUrl && <CopyButton text={s.webhookUrl} label={t('c.copy')} />}
+                </div>
+                <small className="tiny text-dim">{s?.webhookSignatureHeader || 'X-Signature'}</small>
+              </div>
+            </div>
+            <div className="row gap-8 wrap" style={{ marginTop: 12 }}>
+              <button className="btn btn-cyan btn-sm" onClick={testRealAccount} disabled={integrationBusy}>
+                {integrationBusy ? <Loader2 size={14} className="spinner" /> : <Webhook size={14} />} {t('ad.testConnection')}
+              </button>
+              <span className="small text-dim">{t('ad.realAccount')}: {s?.providerLabel}</span>
+            </div>
+            {connection && (
+              <div className={`alert ${connection.reachable ? 'alert-success' : 'alert-error'}`} style={{ marginTop: 14 }}>
+                {connection.reachable ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                <div>
+                  <strong>{connection.reachable ? t('ad.accountConnected') : t('ad.accountNotConnected')}</strong>
+                  <div className="tiny">
+                    {connection.account?.name || connection.account?.email || connection.account?.id || '—'} · {t('ad.balance')}: {connection.account?.balance ?? '—'} {connection.account?.currency || ''}
+                  </div>
+                  {connection.reason && <div className="tiny">{connection.reason}</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-head">
+            <h2 style={{ fontSize: '1rem' }}><Boxes size={17} /> {t('ad.skuMapping')}</h2>
+            <span className="badge badge-gray">{s?.skuCoverage?.mapped || 0}/{s?.skuCoverage?.total || 0} {t('ad.mapped')}</span>
+          </div>
+          <div className="panel-body">
+            <p className="small text-dim" style={{ marginBottom: 14 }}>{t('ad.skuMapHelp')}</p>
+            <div className="row gap-8 wrap" style={{ marginBottom: 14 }}>
+              <input className="input" style={{ maxWidth: 240 }} value={catalogCategory}
+                onChange={(e) => setCatalogCategory(e.target.value)} placeholder={t('ad.categoryId')} />
+              <button className="btn btn-outline btn-sm" onClick={loadProviderCatalog} disabled={integrationBusy}>
+                {integrationBusy ? <Loader2 size={14} className="spinner" /> : <ListTree size={14} />} {t('ad.loadCatalog')}
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={saveSkuMap} disabled={integrationBusy || !allPackages.length}>
+                <Save size={14} /> {t('ad.saveMapping')}
+              </button>
+            </div>
+
+            {catalog && (
+              <details className="security-events" style={{ marginBottom: 14 }}>
+                <summary>{t('ad.providerCatalog')} · {items.length} {t('ad.items')}</summary>
+                {!catalog.categoryId && catalog.categories?.length > 0 && (
+                  <div className="tiny" style={{ margin: '8px 0' }}>
+                    {catalog.categories.slice(0, 40).map((c) => <span key={`${c.id}-${c.name}`} className="badge badge-gray" style={{ margin: 2 }}>{c.id} · {c.name}</span>)}
+                  </div>
+                )}
+                {items.slice(0, 100).map((item) => <div className="tiny" key={item.id}>{item.id} · {item.name} · {item.currency} {Number.isFinite(item.unitPrice) ? item.unitPrice.toFixed(4) : '—'}</div>)}
+                {!items.length && <div className="tiny text-dim">{t('ad.noCatalogItems')}</div>}
+              </details>
+            )}
+
+            <datalist id="provider-items">
+              {items.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </datalist>
+            <div className="order-table-wrap">
+              <table className="data-table">
+                <thead><tr><th>{t('ad.product')}</th><th>{t('ad.package')}</th><th>{t('ad.providerItemId')}</th><th>Key</th></tr></thead>
+                <tbody>{allPackages.map(({ p, pk, key }) => {
+                  const value = String(skuDraft[key] ?? '');
+                  const mapped = /^\d+$/.test(value);
+                  return (
+                    <tr key={key}>
+                      <td><strong className="small">{p.name}</strong><div className="tiny text-dim">/{p.slug}</div></td>
+                      <td className="small">{pk.label}</td>
+                      <td><input className="input" style={{ minWidth: 140, maxWidth: 220 }} list="provider-items" value={value}
+                        placeholder={t('ad.itemIdPlaceholder')} onChange={(e) => setSkuDraft({ ...skuDraft, [key]: e.target.value })} /></td>
+                      <td><span className={`badge ${mapped ? 'badge-green' : 'badge-gray'}`}>{mapped ? t('ad.mapped') : t('ad.unmapped')}</span><div className="tiny text-dim">{key}</div></td>
+                    </tr>
+                  );
+                })}</tbody>
+              </table>
+            </div>
+            {allPackages.length === 0 && <div className="empty-state"><h3>{t('c.noResults')}</h3></div>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderProducts = () => (
     <div className="panel">
       <div className="panel-head"><h2>{t('ad.products')} <span className="badge badge-gray">{products.length}</span></h2>
@@ -535,6 +712,7 @@ export default function Admin() {
         {tab === 'promos' && renderPromos()}
         {tab === 'users' && renderUsers()}
         {tab === 'messages' && renderMessages()}
+        {tab === 'integrations' && (integrations ? renderIntegrations() : <div className="loading-center"><span className="spinner" /> {t('c.loading')}</div>)}
         {tab === 'settings' && (settingsForm ? renderSettings() : <div className="loading-center"><span className="spinner" /> {t('c.loading')}</div>)}
       </div>
 
