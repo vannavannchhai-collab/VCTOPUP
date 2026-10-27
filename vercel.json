@@ -6,6 +6,9 @@
   "functions": {
     "api/index.js": { "maxDuration": 30 }
   },
+  "crons": [
+    { "path": "/api/payments/reconcile", "schedule": "0 0 * * *" }
+  ],
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/:path*", "destination": "/index.html" }

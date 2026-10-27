@@ -18,8 +18,8 @@
 import crypto from 'node:crypto';
 import { generateKHQR } from './khqr.js';
 import { checkTransactionByMd5 } from './bakong.js';
-import { fulfill, verifyCallback } from './partner.js';
-import { bakongConfig, integrationStatus, isLive } from './config.js';
+import { fulfill, verifyCallback, planShop2TopupOrders, providerOrderRefs } from './partner.js';
+import { bakongConfig, integrationStatus, partnerConfig, isLive } from './config.js';
 import { readFresh, transact, getDB } from './db.js';
 
 const nowIso = () => new Date().toISOString();
@@ -256,6 +256,47 @@ function awardPoints(d, order) {
   if (u) u.points = (u.points || 0) + (order.pointsEarned || 0);
 }
 
+/** Persist a partner result and keep the provider webhook lookup up to date. */
+function applyFulfillmentResult(code, result) {
+  return transact((d) => {
+    const o = findOrder(d, code);
+    if (!o) return null;
+    o.fulfillment = {
+      ...(o.fulfillment || {}),
+      status: result.state,
+      ref: result.ref || o.fulfillment?.ref || null,
+      message: result.message,
+      attempts: result.attempts || o.fulfillment?.attempts || 1,
+      lastAttemptAt: nowIso(),
+      sandbox: Boolean(result.sandbox),
+      ...(result.provider ? { provider: result.provider } : {}),
+      ...(result.providerOrders ? { providerOrders: result.providerOrders } : {}),
+      ...(result.providerResults ? { providerResults: result.providerResults } : {}),
+    };
+    d.partnerOrderMap ||= {};
+    for (const ref of providerOrderRefs(o)) d.partnerOrderMap[ref.id] = o.code;
+
+    if (result.state === 'completed') {
+      o.status = 'completed';
+      o.deliveredAt = nowIso();
+      o.payment.status = 'paid';
+      o.timeline.push({ status: 'completed', at: nowIso(), note: result.sandbox ? 'SANDBOX: simulated delivery' : `Credits delivered (${result.ref || 'partner confirmed'})` });
+      awardPoints(d, o);
+      for (const item of o.items) {
+        const p = d.products.find((x) => x.id === item.productId || x.slug === item.productSlug);
+        if (p) p.sold = (p.sold || 0) + item.qty;
+      }
+    } else if (result.state === 'failed') {
+      o.status = 'delivery_failed';
+      o.timeline.push({ status: 'delivery_failed', at: nowIso(), note: `Partner delivery failed: ${result.message}` });
+      logSecurity(d, 'error', 'Partner delivery failed', { code, message: result.message });
+    } else {
+      o.timeline.push({ status: 'processing', at: nowIso(), note: `Partner is processing (${result.ref || 'queued'})` });
+    }
+    return o;
+  });
+}
+
 /** Run the partner delivery for a PAID order and persist the result atomically. */
 export async function deliverOrder(code, { force = false } = {}) {
   const db = await readFresh();
@@ -283,39 +324,31 @@ export async function deliverOrder(code, { force = false } = {}) {
   });
   if (!claimed) return { order: findOrder(getDB(), code) || order, skipped: true };
 
-  const result = await fulfill(findOrder(getDB(), code) || order);
+  let fresh = findOrder(getDB(), code) || order;
 
-  const updated = await transact((d) => {
-    const o = findOrder(d, code);
-    o.fulfillment = {
-      ...(o.fulfillment || {}),
-      status: result.state,
-      ref: result.ref || o.fulfillment?.ref || null,
-      message: result.message,
-      attempts: result.attempts || o.fulfillment?.attempts || 1,
-      lastAttemptAt: nowIso(),
-      sandbox: Boolean(result.sandbox),
-    };
-    if (result.state === 'completed') {
-      o.status = 'completed';
-      o.deliveredAt = nowIso();
-      o.payment.status = 'paid';
-      o.timeline.push({ status: 'completed', at: nowIso(), note: result.sandbox ? 'SANDBOX: simulated delivery' : `Credits delivered (${result.ref || 'partner confirmed'})` });
-      awardPoints(d, o);
-      for (const item of o.items) {
-        const p = d.products.find((x) => x.id === item.productId || x.slug === item.productSlug);
-        if (p) p.sold = (p.sold || 0) + item.qty;
-      }
-    } else if (result.state === 'failed') {
-      o.status = 'delivery_failed';
-      o.timeline.push({ status: 'delivery_failed', at: nowIso(), note: `Partner delivery failed: ${result.message}` });
-      logSecurity(d, 'error', 'Partner delivery failed', { code, message: result.message });
-    } else {
-      o.timeline.push({ status: 'processing', at: nowIso(), note: `Partner is processing (${result.ref || 'queued'})` });
+  // Build and persist the real provider plan BEFORE creating any provider
+  // order. This makes webhook lookup and crash recovery deterministic.
+  if (isLive && partnerConfig().provider === 'shop2topup' && !fresh.fulfillment?.providerOrders?.length) {
+    let prepared;
+    try { prepared = await planShop2TopupOrders(fresh); }
+    catch (err) { prepared = { error: err.message }; }
+    if (prepared.error) {
+      const failed = { state: 'failed', message: prepared.error, ref: null, provider: 'shop2topup', attempts: 1 };
+      const updated = await applyFulfillmentResult(code, failed);
+      return { order: updated, result: failed };
     }
-    return o;
-  });
+    fresh = await transact((d) => {
+      const o = findOrder(d, code);
+      if (!o) return fresh;
+      o.fulfillment = { ...(o.fulfillment || {}), providerOrders: prepared.orders };
+      d.partnerOrderMap ||= {};
+      for (const ref of providerOrderRefs(o)) d.partnerOrderMap[ref.id] = o.code;
+      return o;
+    }) || fresh;
+  }
 
+  const result = await fulfill(findOrder(getDB(), code) || fresh);
+  const updated = await applyFulfillmentResult(code, result);
   return { order: updated, result };
 }
 
@@ -388,34 +421,81 @@ export async function adminConfirmPayment(code, adminId, note = '') {
 }
 
 /** Signed partner callback (for partners that deliver asynchronously). */
-export async function handlePartnerCallback(rawBody, signature, timestamp) {
-  const check = verifyCallback(rawBody, signature, timestamp);
+export async function handlePartnerCallback(rawBody, signature = '', timestamp = '', headers = {}) {
+  const check = verifyCallback(rawBody, signature, timestamp, headers);
   if (!check.ok) return { error: check.reason, status: 401 };
-  let payload;
-  try { payload = JSON.parse(rawBody); } catch { return { error: 'Invalid JSON', status: 400 }; }
-  const code = payload.orderId || payload.reference || payload.order_id;
-  if (!code) return { error: 'Missing order reference', status: 400 };
 
-  const state = String(payload.status || payload.result || '').toUpperCase();
-  const delivered = ['SUCCESS', 'COMPLETED', 'DELIVERED', 'PAID'].includes(state) || payload.success === true;
-  const failed = ['FAILED', 'REJECTED', 'CANCELLED', 'REFUNDED'].includes(state);
+  let payload;
+  try { payload = check.payload || JSON.parse(rawBody); } catch { return { error: 'Invalid JSON', status: 400 }; }
+  const provider = partnerConfig().provider;
+  const data = payload.data && typeof payload.data === 'object' ? payload.data : payload;
+  const event = String(payload.event || '').toLowerCase();
+
+  if (provider === 'shop2topup' && event === 'webhook.test') return { test: true, received: true };
+
+  let code = '';
+  let providerOrderId = '';
+  let state = String(payload.status || payload.result || data.status || data.order_status || '').toUpperCase();
+  let transactionId = payload.transactionId || data.transaction_id || data.transactionId || '';
+
+  if (provider === 'shop2topup') {
+    providerOrderId = String(data.order_id || data.orderId || payload.order_id || '');
+    const db = getDB();
+    code = db.partnerOrderMap?.[providerOrderId] || '';
+    if (!code && providerOrderId) {
+      const match = db.orders.find((o) => o.fulfillment?.providerOrders?.some((r) => r.id === providerOrderId || r.ref === providerOrderId));
+      code = match?.code || '';
+    }
+    code ||= data.partner_ref || data.reference || payload.reference || payload.orderId || '';
+    if (event === 'order.completed') state = 'COMPLETED';
+    if (event === 'order.failed') state = 'FAILED';
+    if (event === 'order.refunded') state = 'REFUNDED';
+    transactionId ||= providerOrderId;
+  } else {
+    code = payload.orderId || payload.reference || payload.order_id || data.order_id || '';
+  }
+  if (!code) return { error: 'Unknown provider order reference', status: 404 };
+
+  const delivered = ['SUCCESS', 'COMPLETED', 'COMPLETE', 'DELIVERED', 'PAID'].includes(state) || payload.success === true;
+  const failed = ['FAILED', 'REJECTED', 'CANCELLED', 'CANCELED', 'REFUNDED'].includes(state);
+  const eventHash = crypto.createHash('sha256').update(rawBody).digest('hex');
 
   const result = await transact((d) => {
+    d.webhookEvents ||= [];
+    if (d.webhookEvents.includes(eventHash)) {
+      return { duplicate: true, order: findOrder(d, code) };
+    }
+    d.webhookEvents.unshift(eventHash);
+    d.webhookEvents = d.webhookEvents.slice(0, 200);
+
     const o = findOrder(d, code);
     if (!o) return null;
-    o.fulfillment = { ...(o.fulfillment || {}), ref: payload.transactionId || o.fulfillment?.ref || null, status: delivered ? 'completed' : failed ? 'failed' : 'pending', callbackAt: nowIso(), callbackStatus: state };
-    if (delivered && o.payment.status === 'paid' && o.status !== 'completed') {
+    if (delivered && o.payment.status !== 'paid') {
+      o.fulfillment = { ...(o.fulfillment || {}), callbackAt: nowIso(), callbackStatus: 'REJECTED_UNPAID', callbackEvent: event || null };
+      logSecurity(d, 'critical', 'Callback ignored: payment was not verified', { code, state, providerOrderId });
+      return { ignored: true, order: o };
+    }
+    o.fulfillment = {
+      ...(o.fulfillment || {}),
+      ref: transactionId || o.fulfillment?.ref || null,
+      status: delivered ? 'completed' : failed ? 'failed' : 'pending',
+      callbackAt: nowIso(),
+      callbackStatus: state,
+      ...(providerOrderId ? { providerOrderId } : {}),
+      ...(event ? { callbackEvent: event } : {}),
+    };
+    if (delivered && o.status !== 'completed') {
       o.status = 'completed';
       o.deliveredAt = nowIso();
-      o.timeline.push({ status: 'completed', at: nowIso(), note: `Partner callback confirmed delivery (${payload.transactionId || state})` });
+      o.timeline.push({ status: 'completed', at: nowIso(), note: `Partner callback confirmed delivery (${transactionId || state})` });
       awardPoints(d, o);
     } else if (failed && o.status !== 'completed') {
       o.status = 'delivery_failed';
       o.timeline.push({ status: 'delivery_failed', at: nowIso(), note: `Partner callback reported ${state}` });
     }
-    logSecurity(d, 'info', 'Partner callback', { code, state, transactionId: payload.transactionId });
-    return o;
+    logSecurity(d, 'info', 'Partner callback', { code, state, transactionId, providerOrderId });
+    return { order: o };
   });
   if (!result) return { error: 'Order not found', status: 404 };
-  return { order: result };
+  return result;
 }
