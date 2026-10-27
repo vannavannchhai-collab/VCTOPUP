@@ -20,6 +20,7 @@ const DEFAULT_BOOT = {
   },
   categories: [], paymentMethods: [], reviews: [], faqs: [],
   featured: [], popular: [], productCount: 30,
+  payment: { mode: 'sandbox', live: false, ready: true, blockers: [], checks: {} },
 };
 
 export function StoreProvider({ children }) {

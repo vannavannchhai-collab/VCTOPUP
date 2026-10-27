@@ -9,7 +9,14 @@
  * and so we never accidentally call app.listen() in a serverless runtime.
  */
 import app from '../server/app.js';
+import { ensureStore } from '../server/db.js';
 
-export default function handler(req, res) {
+// Cold start: load durable state from Postgres before the first request.
+// Cached after the first call so warm invocations pay no cost.
+let ready = null;
+
+export default async function handler(req, res) {
+  ready ||= ensureStore();
+  await ready;
   return app(req, res);
 }

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { Pool } from 'pg';
 import { categories, products, promos, reviews, faqs, paymentMethods, settings } from './seed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -187,6 +188,109 @@ export function mutate(fn) {
   const result = fn(db);
   persist();
   return result;
+}
+
+/* ------------------------------------------------------------------------
+ * DURABLE STORE (required for LIVE payments)
+ *
+ * The JSON file above is fine for a demo but is per-instance and ephemeral on
+ * Vercel. When DATABASE_URL is set (Neon / Supabase / Vercel Postgres) we keep
+ * the whole state in one JSONB row and serialize every write with
+ * SELECT ... FOR UPDATE. That row lock is what makes
+ *   "mark order paid" -> "deliver diamonds"
+ * atomic across concurrently-running Functions: two instances cannot both
+ * settle the same order, and no order can be lost by a stale in-memory cache.
+ * ---------------------------------------------------------------------- */
+const DATABASE_URL = process.env.DATABASE_URL || '';
+export const isDurableStore = () => Boolean(DATABASE_URL);
+
+let pool = null;
+let storeReady = null;
+
+function getPool() {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: DATABASE_URL,
+      max: 2,
+      connectionTimeoutMillis: 8000,
+      // Neon/Supabase require TLS. Their URLs normally include sslmode=require.
+      ssl: /(?:sslmode=require|ssl=true)/i.test(DATABASE_URL) ? { rejectUnauthorized: false } : undefined,
+    });
+    pool.on('error', (err) => console.error('[pg] idle client error:', err.message));
+  }
+  return pool;
+}
+
+const STATE_ID = 'main';
+
+/** Call once before serving requests (idempotent). Loads the state from PG. */
+export function ensureStore() {
+  if (storeReady) return storeReady;
+  storeReady = (async () => {
+    if (!DATABASE_URL) { getDB(); return; }
+    const p = getPool();
+    await p.query(`CREATE TABLE IF NOT EXISTS vc_state (
+      id text PRIMARY KEY,
+      data jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`);
+    const { rows } = await p.query('SELECT data FROM vc_state WHERE id = $1', [STATE_ID]);
+    if (rows[0]?.data) {
+      cache = rows[0].data;
+      console.log('[store] loaded state from Postgres');
+    } else {
+      const fresh = seed();
+      await p.query(
+        'INSERT INTO vc_state (id, data) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING',
+        [STATE_ID, fresh]
+      );
+      const again = await p.query('SELECT data FROM vc_state WHERE id = $1', [STATE_ID]);
+      cache = again.rows[0]?.data || fresh;
+      console.log('[store] seeded Postgres state');
+    }
+  })();
+  return storeReady;
+}
+
+/** Re-read PG so a verification request never decides from a stale cache. */
+export async function readFresh() {
+  await ensureStore();
+  if (!DATABASE_URL) return getDB();
+  const { rows } = await getPool().query('SELECT data FROM vc_state WHERE id = $1', [STATE_ID]);
+  if (rows[0]?.data) cache = rows[0].data;
+  return cache;
+}
+
+/**
+ * Atomic mutation. `fn` must be SYNCHRONOUS and must not perform network I/O —
+ * the row is locked for the whole call. Do external API calls before/after.
+ */
+export async function transact(fn) {
+  await ensureStore();
+  if (!DATABASE_URL) return mutate(fn);
+
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT data FROM vc_state WHERE id = $1 FOR UPDATE', [STATE_ID]);
+    const state = JSON.parse(JSON.stringify(rows[0]?.data || cache || seed()));
+    const result = fn(state);
+    await client.query(
+      `INSERT INTO vc_state (id, data, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
+      [STATE_ID, state]
+    );
+    await client.query('COMMIT');
+    cache = state;
+    // Best-effort local mirror for debugging; a failure here is non-fatal.
+    try { saveDB(); } catch { /* /tmp may be unavailable */ }
+    return result;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export function publicUser(u) {
