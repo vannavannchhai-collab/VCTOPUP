@@ -6,9 +6,17 @@
  * means one codebase works on both a long-running server and Vercel.
  */
 import app, { PORT } from './app.js';
-import { getDB } from './db.js';
+import { ensureStore, getDB } from './db.js';
+import { integrationStatus } from './config.js';
 
+await ensureStore();
+
+const s = integrationStatus();
 app.listen(PORT, '0.0.0.0', () => {
+  const db = getDB();
   console.log(`\n  ⚡ VC TOPUP API running on http://0.0.0.0:${PORT}`);
-  console.log(`  📦 ${getDB().products.length} products · ${getDB().orders.length} orders · ${getDB().users.length} users\n`);
+  console.log(`  📦 ${db.products.length} products · ${db.orders.length} orders · ${db.users.length} users`);
+  console.log(`  💳 PAYMENT_MODE=${s.mode}${s.live ? (s.ready ? ' (LIVE — real money)' : ` (LIVE BLOCKED: ${s.blockers.join(', ')})`) : ' (sandbox — no real money)'}`);
+  if (!s.checks.durableStore) console.log('  ⚠️  No DATABASE_URL — orders are stored in a local JSON file, NOT safe for live payments.');
+  console.log('');
 });

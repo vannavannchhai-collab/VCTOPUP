@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { Check, Sparkles, ArrowRight, Send, ShieldCheck, Clock3 } from 'lucide-react';
+import { Check, Sparkles, ArrowRight, ShieldCheck, Clock3, Zap, AlertTriangle, Loader2, QrCode } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { api } from '../lib/api.js';
 import { usd, khr, dateTime } from '../lib/format.js';
@@ -14,20 +14,46 @@ export default function OrderSuccess() {
   const [loading, setLoading] = useState(!order);
 
   useEffect(() => {
-    if (order) return;
     let cancelled = false;
-    api.get(`/orders/${code}`).then((res) => { if (!cancelled) setOrder(res.data); }).catch(() => {}).finally(() => { if (!cancelled) setLoading(false); });
+    const load = () => api.get(`/orders/${code}`)
+      .then((res) => { if (!cancelled) setOrder(res.data); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    load();
     return () => { cancelled = true; };
   }, [code]);
 
+  // Keep the delivery status live. The status endpoint is idempotent and also
+  // self-heals: a paid order whose delivery was interrupted is retried here.
+  useEffect(() => {
+    if (!order) return;
+    if (['completed', 'cancelled', 'delivery_failed'].includes(order.status)) return;
+    const id = setInterval(() => {
+      api.get(`/payments/${code}/status`)
+        .then((res) => setOrder((o) => o && ({ ...o, status: res.data.status, payment: { ...o.payment, status: res.data.paymentStatus }, fulfillment: res.data.fulfillment, deliveredAt: res.data.deliveredAt })))
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(id);
+  }, [order?.status, code]);
+
   if (loading) return <div className="loading-center"><span className="spinner" /> {t('c.loading')}</div>;
+
+  const finished = order?.status === 'completed';
+  const failed = order?.status === 'delivery_failed';
+  const awaitingPayment = order?.payment?.status === 'pending' || order?.payment?.status === 'expired';
 
   return (
     <div className="container success-wrap">
-      <div className="success-icon"><Check size={46} strokeWidth={2.5} /></div>
+      <div className={`success-icon ${failed ? 'failed' : ''}`}>
+        {finished ? <Check size={46} strokeWidth={2.5} /> : failed ? <AlertTriangle size={46} /> : <Zap size={44} />}
+      </div>
       <div className="text-center">
-        <h1 className="gradient-text" style={{ fontSize: 'clamp(2rem, 4vw, 3rem)' }}>{t('suc.title')}</h1>
-        <p style={{ maxWidth: 540, margin: '12px auto 0' }}>{t('suc.subtitle')}</p>
+        <h1 className="gradient-text" style={{ fontSize: 'clamp(2rem, 4vw, 3rem)' }}>
+          {finished ? t('pay.done') : failed ? t('pay.failed') : t('suc.title')}
+        </h1>
+        <p style={{ maxWidth: 540, margin: '12px auto 0' }}>
+          {finished ? t('st.completedD') : failed ? t('pay.failedDesc') : awaitingPayment ? t('pay.waiting') : t('suc.subtitle')}
+        </p>
         <div className="row center gap-10 wrap" style={{ marginTop: 20 }}>
           <span className="success-code">{order?.code || code}</span>
           <CopyButton text={order?.code || code || ''} onCopied={() => notify(t('c.copied'), 'success')} />
@@ -59,6 +85,40 @@ export default function OrderSuccess() {
             <span>{t('ad.method')}: {order?.payment?.method?.toUpperCase()}</span>
             <span>+{order?.pointsEarned || 0} {t('ac.points')}</span>
           </div>
+        </div>
+      </div>
+
+      {/* Real-money → real-diamonds status, straight from the server. */}
+      <div className="panel" style={{ marginTop: 18 }}>
+        <div className="panel-head"><h2 style={{ fontSize: '1rem' }}><Zap size={17} /> {t('tr.timeline')}</h2>
+          {order && <StatusBadge status={order.status} />}</div>
+        <div className="panel-body">
+          <div className="delivery-track">
+            {[
+              { key: 'verify', label: t('pay.step2'), done: !awaitingPayment, icon: ShieldCheck },
+              { key: 'deliver', label: t('pay.step3'), done: finished, icon: Zap },
+            ].map((s) => (
+              <div className={`delivery-item ${s.done ? 'done' : ''}`} key={s.key}>
+                <span className="di">{s.done ? <Check size={15} /> : <s.icon size={15} />}</span>
+                <strong>{s.label}</strong>
+                {!s.done && <Loader2 size={13} className="spinner" />}
+              </div>
+            ))}
+          </div>
+          {order?.payment?.sandbox && (
+            <div className="alert alert-warn" style={{ marginTop: 14 }}><QrCode size={14} /> {t('pay.sandbox')}</div>
+          )}
+          {order?.fulfillment?.ref && (
+            <div className="tiny text-dim" style={{ marginTop: 10 }}>{t('pay.ref')}: {order.fulfillment.ref}</div>
+          )}
+          {order?.deliveredAt && (
+            <div className="tiny" style={{ marginTop: 6, color: '#6ee7b7' }}>{dateTime(order.deliveredAt)}</div>
+          )}
+          {awaitingPayment && (
+            <Link to={`/pay/${code}`} className="btn btn-primary btn-sm btn-block" style={{ marginTop: 14 }}>
+              <QrCode size={14} /> {t('pay.title')} <ArrowRight size={14} />
+            </Link>
+          )}
         </div>
       </div>
 

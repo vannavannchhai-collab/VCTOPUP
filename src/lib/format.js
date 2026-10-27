@@ -47,7 +47,8 @@ export const compact = (n) => {
 };
 
 export const statusTone = (s) => ({
-  pending: 'amber', processing: 'blue', completed: 'green', cancelled: 'red',
+  pending: 'amber', paid: 'cyan', processing: 'blue', completed: 'green',
+  cancelled: 'red', delivery_failed: 'red',
 }[s] || 'gray');
 
 export const initials = (name = '') => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();

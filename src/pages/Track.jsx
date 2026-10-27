@@ -11,7 +11,8 @@ import { PageHead, StatusBadge, CopyButton } from '../components/ui.jsx';
 
 const STEPS = [
   { key: 'pending', icon: Package },
-  { key: 'processing', icon: CreditCard },
+  { key: 'paid', icon: CreditCard },
+  { key: 'processing', icon: Clock3 },
   { key: 'completed', icon: Check },
 ];
 
@@ -92,7 +93,7 @@ export default function Track() {
               <div className="panel">
                 <div className="panel-head"><h2 style={{ fontSize: '1rem' }}>{t('tr.timeline')}</h2></div>
                 <div className="panel-body">
-                  {order.status === 'cancelled' ? (
+                  {['cancelled', 'delivery_failed'].includes(order.status) ? (
                     <div className="timeline">
                       {order.timeline.map((tl, i) => (
                         <div className="timeline-item done" key={i}>
@@ -151,8 +152,11 @@ export default function Track() {
               <Info size={16} />
               <span>{t('suc.help')} <a href={`https://t.me/${(settings.telegram || '@vctopup').replace('@', '')}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>{settings.telegram}</a></span>
             </div>
-            <div className="row center gap-12" style={{ marginTop: 22 }}>
-              <Link to="/shop" className="btn btn-outline btn-sm">{t('cart.continue')} <ArrowRight size={15} /></Link>
+            <div className="row center gap-12 wrap" style={{ marginTop: 22 }}>
+              {order.payment.status !== 'paid' && order.status !== 'cancelled' && (
+                <Link to={`/pay/${order.code}`} className="btn btn-primary btn-sm">{t('pay.title')} <ArrowRight size={15} /></Link>
+              )}
+              <Link to="/shop" className="btn btn-outline btn-sm">{t('cart.continue')}</Link>
             </div>
           </div>
         )}

@@ -377,6 +377,19 @@ export const paymentMethods = [
   { id: 'wallet', name: 'VC Wallet', nameKh: 'កាបូប VC', icon: 'Gem', colors: ['#06b6d4', '#0e7490'], kind: 'balance' },
 ];
 
+/**
+ * Every package gets a deterministic partner SKU. Real game partners use their
+ * own product codes, so override these at deploy time with PARTNER_SKU_MAP:
+ *   {"mobile-legends:86-diamonds":"MOONTON_MLBB_86","free-fire:100-diamonds":"GARENA_FF_100"}
+ * Keys are `<productSlug>:<packageId>`; a bare `<productSlug>` key is a fallback.
+ * See server/partner.js `resolveSku()`.
+ */
+for (const p of products) {
+  for (const pk of p.packages) {
+    if (!pk.partnerSku) pk.partnerSku = `${p.slug}:${pk.id}`;
+  }
+}
+
 export const settings = {
   siteName: 'VC TOPUP',
   tagline: { kh: 'បញ្ចូលលុយហ្គេម លឿន ងាយ សុវត្ថិភាព', en: 'Fast, easy & secure game top ups' },

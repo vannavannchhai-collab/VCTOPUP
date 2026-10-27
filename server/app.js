@@ -16,14 +16,24 @@ import fs from 'node:fs';
 import {
   ROOT, getDB, saveDB, mutate, hashPassword, verifyPassword,
   signToken, verifyToken, uid, orderCode, publicUser,
+  readFresh, transact, ensureStore,
 } from './db.js';
+import { integrationStatus, assertLiveReady, LiveNotReadyError, isLive } from './config.js';
+import {
+  attachPayment, publicPayment, verifyPayment, deliverOrder,
+  simulateSandboxPayment, refreshPaymentQR, adminConfirmPayment, handlePartnerCallback,
+} from './payments.js';
 
 const app = express();
 export const PORT = process.env.PORT || 4000;
 const IS_VERCEL = Boolean(process.env.VERCEL);
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '1mb' }));
+// Keep the raw bytes so partner callbacks can be HMAC-verified exactly as sent.
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 app.use((req, _res, next) => {
   if (process.env.NODE_ENV !== 'production' && req.path.startsWith('/api')) {
     console.log(`  ↳ ${req.method} ${req.originalUrl}`);
@@ -80,12 +90,21 @@ function normalizeOrderItems(db, rawItems) {
 }
 
 // ================================================================ PUBLIC API
-api.get('/health', (_req, res) => res.json({ ok: true, service: 'VC TOPUP API', time: new Date().toISOString() }));
+api.get('/health', (_req, res) => res.json({
+  ok: true, service: 'VC TOPUP API', time: new Date().toISOString(),
+  paymentMode: integrationStatus().mode,
+  durableStore: integrationStatus().checks.durableStore,
+}));
+
+/** Public, secret-free integration report. The UI uses it to show a sandbox
+ *  badge and to explain why live mode may be unavailable. */
+api.get('/config', (_req, res) => res.json({ ok: true, data: integrationStatus() }));
 
 api.get('/bootstrap', (_req, res) => {
   const db = getDB();
   res.json({
     ok: true,
+    payment: integrationStatus(),
     settings: db.settings,
     categories: db.categories,
     paymentMethods: db.paymentMethods,
@@ -145,8 +164,9 @@ api.post('/promo/validate', (req, res) => {
   res.json({ ok: true, data: { code: result.promo.code, type: result.promo.type, value: result.promo.value, discount: result.discount } });
 });
 
-api.post('/orders', asyncH((req, res) => {
-  const db = getDB();
+api.post('/orders', asyncH(async (req, res) => {
+  await ensureStore();
+  const db = await readFresh();
   const { customer = {}, payment = {}, promoCode = '', note = '' } = req.body;
   let items;
   try { items = normalizeOrderItems(db, req.body.items); }
@@ -160,7 +180,15 @@ api.post('/orders', asyncH((req, res) => {
     if (item.accountId.length < 3) return fail(res, 400, 'Please enter your account ID / phone number');
   }
   const method = clean(payment.method) || 'aba';
-  if (!db.paymentMethods.some((m) => m.id === method)) return fail(res, 400, 'Invalid payment method');
+  const methodConfig = db.paymentMethods.find((m) => m.id === method);
+  if (!methodConfig) return fail(res, 400, 'Invalid payment method');
+
+  // HARD GATE: never accept a real-money order until verification, storage and
+  // fulfillment are all configured. Fails closed rather than silently demo-ing.
+  try { assertLiveReady(); }
+  catch (err) {
+    return fail(res, err.status || 503, err.message, { blockers: err.blockers || [] });
+  }
 
   const subtotal = round(items.reduce((s, i) => s + i.lineTotal, 0));
   let discount = 0, appliedPromo = '';
@@ -191,22 +219,26 @@ api.post('/orders', asyncH((req, res) => {
     items, subtotal, discount, total,
     promoCode: appliedPromo,
     customer: { name, phone, email, telegram: clean(customer.telegram) },
-    payment: {
-      method,
-      status: isWallet ? 'paid' : 'pending',
-      transactionId: clean(payment.transactionId) || (isWallet ? `WALLET-${code}` : ''),
-    },
-    status: isWallet ? 'processing' : 'pending',
+    payment: { method, transactionId: clean(payment.transactionId) },
+    status: 'pending',
     note: clean(note).slice(0, 500),
     pointsEarned: Math.floor(total),
+    pointsAwarded: false,
+    fulfillment: { status: 'not_started', attempts: 0 },
     createdAt: now,
-    timeline: [
-      { status: 'pending', at: now, note: 'Order created' },
-      ...(isWallet ? [{ status: 'processing', at: now, note: 'Paid with VC Wallet' }] : []),
-    ],
+    timeline: [{ status: 'pending', at: now, note: 'Order created' }],
   };
 
-  mutate((d) => {
+  // A unique dynamic KHQR is generated SERVER-SIDE and bound to this order.
+  // The browser never invents a payment string and never sets payment status.
+  order.payment = attachPayment(order, methodConfig, db.settings);
+  const paidImmediately = order.payment.status === 'paid';
+  if (paidImmediately) {
+    order.status = 'paid';
+    order.timeline.push({ status: 'paid', at: now, note: 'Paid with VC Wallet' });
+  }
+
+  await transact((d) => {
     d.orders.unshift(order);
     if (appliedPromo) {
       const p = d.promos.find((x) => x.code === appliedPromo);
@@ -216,12 +248,135 @@ api.post('/orders', asyncH((req, res) => {
       const u = d.users.find((x) => x.id === payer.id);
       if (u) u.balance = round((u.balance || 0) - total);
     }
-    if (payer) {
-      const u = d.users.find((x) => x.id === payer.id);
-      if (u) u.points = (u.points || 0) + (isWallet ? order.pointsEarned : 0);
-    }
   });
-  res.status(201).json({ ok: true, data: order });
+  // Points are awarded only after delivery completes (see payments.js).
+  res.status(201).json({ ok: true, data: order, payment: publicPayment(order) });
+}));
+
+/* ============================================================ PAYMENT FLOW
+ * The browser can only READ payment state. Verification is always triggered
+ * here on the server, against Bakong, with the credentials in env vars.
+ * ==================================================================== */
+function findOrder(db, code) {
+  return db.orders.find((o) => String(o.code).toLowerCase() === String(code).toLowerCase());
+}
+
+/**
+ * Reconciliation sweep. If a Function crashed after payment but before
+ * delivery, no browser is left polling — this endpoint finishes the job.
+ * Call it from a scheduler with CRON_SECRET. Safe to call repeatedly.
+ * NOTE: declared BEFORE /payments/:code so "reconcile" isn't read as a code.
+ */
+api.get('/payments/reconcile', asyncH(async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '') || req.headers['x-cron-secret'] || '';
+  if (!secret || provided !== secret) return fail(res, 401, 'Reconciliation requires CRON_SECRET');
+  await ensureStore();
+  const db = await readFresh();
+  const candidates = db.orders.filter((o) =>
+    (o.status === 'paid') ||
+    (o.status === 'processing' && o.fulfillment?.lastAttemptAt && Date.now() - new Date(o.fulfillment.lastAttemptAt).getTime() > 120_000) ||
+    (o.status === 'pending' && o.payment?.verification === 'bakong' && o.payment?.expiresAt && Date.now() < new Date(o.payment.expiresAt).getTime())
+  ).slice(0, 20);
+
+  const results = [];
+  for (const o of candidates) {
+    try {
+      const v = await verifyPayment(o.code);
+      if (v.shouldDeliver) await deliverOrder(o.code);
+      results.push({ code: o.code, ok: true, status: v.order?.status || o.status });
+    } catch (err) {
+      results.push({ code: o.code, ok: false, error: err.message });
+    }
+  }
+  res.json({ ok: true, data: { scanned: candidates.length, results } });
+}));
+
+/** Public payment instruction for the /pay/:code page. */
+api.get('/payments/:code', asyncH(async (req, res) => {
+  await ensureStore();
+  const db = await readFresh();
+  const order = findOrder(db, req.params.code);
+  if (!order) return fail(res, 404, 'Order not found');
+  if (req.query.phone && clean(req.query.phone).replace(/\D/g, '').slice(-6) !== order.customer.phone.replace(/\D/g, '').slice(-6)) {
+    return fail(res, 404, 'No order found for that phone number');
+  }
+  res.json({
+    ok: true,
+    data: {
+      code: order.code,
+      status: order.status,
+      total: order.total,
+      createdAt: order.createdAt,
+      items: order.items,
+      customer: { name: order.customer.name, phone: order.customer.phone.replace(/\d(?=\d{4})/g, '•') },
+      payment: publicPayment(order),
+      fulfillment: order.fulfillment || null,
+      timeline: order.timeline,
+      config: { mode: integrationStatus().mode, qrTtlMinutes: integrationStatus().qrTtlMinutes },
+    },
+  });
+}));
+
+/**
+ * Polling endpoint: verify with Bakong, settle, then deliver.
+ * Safe to call repeatedly — every transition is idempotent.
+ */
+api.get('/payments/:code/status', asyncH(async (req, res) => {
+  await ensureStore();
+  const verified = await verifyPayment(req.params.code);
+  if (verified.error) return fail(res, verified.status || 400, verified.error);
+  let order = verified.order;
+  let delivery = null;
+  if (verified.shouldDeliver) {
+    delivery = await deliverOrder(order.code);
+    order = delivery.order || order;
+  }
+  res.json({
+    ok: true,
+    data: {
+      code: order.code,
+      status: order.status,
+      paymentStatus: order.payment.status,
+      verification: order.payment.verification,
+      paidAt: order.payment.paidAt,
+      expiresAt: order.payment.expiresAt || null,
+      discrepancy: order.payment.discrepancy || null,
+      fulfillment: order.fulfillment || null,
+      deliveredAt: order.deliveredAt || null,
+      timeline: order.timeline,
+      verificationError: verified.verificationError || null,
+      throttled: Boolean(verified.throttled),
+    },
+  });
+}));
+
+/** SANDBOX ONLY: pretend the customer scanned the QR in their banking app. */
+api.post('/payments/:code/simulate', asyncH(async (req, res) => {
+  await ensureStore();
+  const r = await simulateSandboxPayment(req.params.code);
+  if (r.error) return fail(res, r.status || 400, r.error);
+  res.json({ ok: true, data: publicPayment(r.order) });
+}));
+
+/** Issue a fresh KHQR after the previous one expired. */
+api.post('/payments/:code/refresh', asyncH(async (req, res) => {
+  await ensureStore();
+  const r = await refreshPaymentQR(req.params.code);
+  if (r.error) return fail(res, r.status || 400, r.error);
+  res.json({ ok: true, data: publicPayment(r.order) });
+}));
+
+/** Signed partner callback for asynchronous delivery confirmations. */
+api.post('/payments/partner-callback', asyncH(async (req, res) => {
+  await ensureStore();
+  const r = await handlePartnerCallback(
+    req.rawBody || JSON.stringify(req.body || {}),
+    req.headers['x-signature'] || '',
+    req.headers['x-timestamp'] || ''
+  );
+  if (r.error) return fail(res, r.status || 400, r.error);
+  res.json({ ok: true, received: true });
 }));
 
 api.get('/orders/:code', (req, res) => {
@@ -389,25 +544,67 @@ api.get('/admin/orders', (req, res) => {
   res.json({ ok: true, data: list, total: list.length });
 });
 
-api.put('/admin/orders/:code', (req, res) => {
-  const db = getDB();
+api.put('/admin/orders/:code', asyncH(async (req, res) => {
+  await ensureStore();
+  const db = await readFresh();
   const order = db.orders.find((o) => o.code === req.params.code);
   if (!order) return fail(res, 404, 'Order not found');
   const status = clean(req.body.status);
-  if (!['pending', 'processing', 'completed', 'cancelled'].includes(status)) return fail(res, 400, 'Invalid status');
-  const updated = mutate((d) => {
+  const allowed = ['pending', 'paid', 'processing', 'completed', 'delivery_failed', 'cancelled'];
+  if (!allowed.includes(status)) return fail(res, 400, `Invalid status. Allowed: ${allowed.join(', ')}`);
+  // Never let a manual status edit fake a payment: `paid` requires evidence.
+  if (status === 'paid' && order.payment.status !== 'paid') {
+    return fail(res, 409, 'Payment is not verified. Use "Confirm payment" instead of faking a status.');
+  }
+  const updated = await transact((d) => {
     const o = d.orders.find((x) => x.code === req.params.code);
     o.status = status;
-    if (status === 'completed') o.payment.status = 'paid';
     o.timeline.push({ status, at: new Date().toISOString(), note: clean(req.body.note) || `Status changed to ${status}` });
-    if (status === 'completed' && o.userId) {
-      const u = d.users.find((x) => x.id === o.userId);
-      if (u) u.points = (u.points || 0) + o.pointsEarned;
+    if (status === 'completed' && !o.pointsAwarded) {
+      o.pointsAwarded = true;
+      if (o.userId) {
+        const u = d.users.find((x) => x.id === o.userId);
+        if (u) u.points = (u.points || 0) + (o.pointsEarned || 0);
+      }
     }
     return o;
   });
   res.json({ ok: true, data: updated, message: 'Order updated' });
-});
+}));
+
+/** Retry a failed partner delivery (idempotent thanks to Idempotency-Key). */
+api.post('/admin/orders/:code/retry', asyncH(async (req, res) => {
+  await ensureStore();
+  const r = await deliverOrder(req.params.code, { force: true });
+  if (r.error) return fail(res, r.status || 400, r.error);
+  res.json({ ok: true, data: r.order, result: r.result || null, message: 'Delivery retried' });
+}));
+
+/** Confirm a manual Wing / TrueMoney transfer, then deliver automatically. */
+api.post('/admin/orders/:code/confirm-payment', asyncH(async (req, res) => {
+  await ensureStore();
+  const r = await adminConfirmPayment(req.params.code, req.user.id, clean(req.body.note));
+  if (r.error) return fail(res, r.status || 400, r.error);
+  let order = r.order;
+  if (r.shouldDeliver) {
+    const d = await deliverOrder(order.code);
+    order = d.order || order;
+  }
+  res.json({ ok: true, data: order, message: 'Payment confirmed; delivery started' });
+}));
+
+/** Integration health — safe booleans only, never secret values. */
+api.get('/admin/integrations', asyncH(async (_req, res) => {
+  await ensureStore();
+  const s = integrationStatus();
+  const db = getDB();
+  res.json({ ok: true, data: {
+    ...s,
+    ordersAwaitingPayment: db.orders.filter((o) => o.status === 'pending').length,
+    ordersFailedDelivery: db.orders.filter((o) => o.status === 'delivery_failed').length,
+    recentSecurityEvents: (db.securityEvents || []).slice(0, 12),
+  } });
+}));
 
 api.get('/admin/products', (_req, res) => res.json({ ok: true, data: getDB().products }));
 
@@ -543,7 +740,10 @@ if (!IS_VERCEL && fs.existsSync(DIST)) {
 
 app.use((err, _req, res, _next) => {
   console.error('[api error]', err);
-  res.status(500).json({ ok: false, message: 'Something went wrong. Please try again.' });
+  const status = Number(err.status) || (err instanceof LiveNotReadyError ? 503 : 500);
+  // Config/verification errors are safe to show; unexpected internals are not.
+  const message = status < 500 ? err.message : 'Something went wrong. Please try again.';
+  res.status(status).json({ ok: false, message, ...(err.blockers ? { blockers: err.blockers } : {}) });
 });
 
 // Seed on first import so the very first Function invocation has data.

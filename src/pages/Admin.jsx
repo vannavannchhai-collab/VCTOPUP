@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingBag, Package, Ticket, Users, Inbox, Settings,
   ArrowUpRight, TrendingUp, DollarSign, Clock3, CheckCircle2, Plus, Search,
   X, Save, Trash2, Eye, ShieldCheck, Sparkles, ExternalLink, Loader2,
-  AlertTriangle, Mail, Send, Percent, Edit3,
+  AlertTriangle, Mail, Send, Percent, Edit3, RefreshCw,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { api, qs } from '../lib/api.js';
@@ -38,6 +38,7 @@ export default function Admin() {
   const [promos, setPromos] = useState([]);
   const [users, setUsers] = useState([]);
   const [messages, setMessages] = useState([]);
+  const [integrations, setIntegrations] = useState(null);
   const [loading, setLoading] = useState(false);
   const [orderSearch, setOrderSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -49,7 +50,10 @@ export default function Admin() {
   const load = useCallback(async (which) => {
     setLoading(true);
     try {
-      if (which === 'overview') setOverview((await api.get('/admin/overview')).data);
+      if (which === 'overview') {
+        setOverview((await api.get('/admin/overview')).data);
+        setIntegrations((await api.get('/admin/integrations')).data);
+      }
       if (which === 'orders') setOrders((await api.get(`/admin/orders${qs({ q: orderSearch, status: statusFilter })}`)).data);
       if (which === 'products') setProducts((await api.get('/admin/products')).data);
       if (which === 'promos') setPromos((await api.get('/admin/promos')).data);
@@ -78,6 +82,23 @@ export default function Admin() {
   const changeStatus = async (code, status) => {
     try {
       await api.put(`/admin/orders/${code}`, { status });
+      notify(t('ad.saved'), 'success');
+      load('orders');
+    } catch (err) { notify(err.message, 'error'); }
+  };
+
+  const retryDelivery = async (code) => {
+    try {
+      const r = await api.post(`/admin/orders/${code}/retry`, {});
+      notify(r.data?.status === 'completed' ? t('pay.done') : t('ad.saved'), 'success');
+      load('orders');
+    } catch (err) { notify(err.message, 'error'); }
+  };
+
+  const confirmPayment = async (code) => {
+    if (!window.confirm(t('ad.confirmPayment') + '?')) return;
+    try {
+      await api.post(`/admin/orders/${code}/confirm-payment`, { note: 'Manually confirmed in admin' });
       notify(t('ad.saved'), 'success');
       load('orders');
     } catch (err) { notify(err.message, 'error'); }
@@ -198,6 +219,48 @@ export default function Admin() {
         ))}
       </div>
 
+      {integrations && (
+        <div className="panel integration-panel">
+          <div className="panel-head">
+            <h2 style={{ fontSize: '1rem' }}><ShieldCheck size={17} /> {t('ad.integrations')}</h2>
+            <span className={`badge ${integrations.live ? (integrations.ready ? 'badge-green' : 'badge-red') : 'badge-violet'}`}>
+              {integrations.live
+                ? (integrations.ready ? t('ad.liveReady') : `LIVE · ${integrations.blockers.length} ${t('ad.liveBlockers')}`)
+                : 'SANDBOX'}
+            </span>
+          </div>
+          <div className="panel-body">
+            <div className="integration-grid">
+              {Object.entries(integrations.checks).map(([k, ok]) => (
+                <div className={`integration-check ${ok ? 'on' : 'off'}`} key={k}>
+                  {ok ? <CheckCircle2 size={14} /> : <X size={14} />} <span>{k}</span>
+                </div>
+              ))}
+            </div>
+            {integrations.blockers?.length > 0 && (
+              <div className="alert alert-error" style={{ marginTop: 14 }}>
+                <AlertTriangle size={15} /> {t('ad.liveBlockers')}: {integrations.blockers.join(', ')}
+              </div>
+            )}
+            <div className="row gap-16 wrap" style={{ marginTop: 14 }}>
+              <span className="small text-dim">{t('ad.awaiting')}: <strong>{integrations.ordersAwaitingPayment}</strong></span>
+              <span className="small" style={{ color: integrations.ordersFailedDelivery ? '#fda4af' : undefined }}>
+                {t('ad.failedDelivery')}: <strong>{integrations.ordersFailedDelivery}</strong>
+              </span>
+              <span className="small text-dim">KHQR TTL: <strong>{integrations.qrTtlMinutes} min</strong></span>
+            </div>
+            {integrations.recentSecurityEvents?.length > 0 && (
+              <details className="security-events">
+                <summary>{t('ad.securityEvents')} ({integrations.recentSecurityEvents.length})</summary>
+                {integrations.recentSecurityEvents.map((e) => (
+                  <div className="tiny" key={e.id}>[{e.level}] {dateShort(e.at, lang)} — {e.message}</div>
+                ))}
+              </details>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="admin-charts">
         <div className="chart-card">
           <h3>{t('ad.chart')}</h3><p>{t('ad.revenue')} (USD)</p>
@@ -273,14 +336,16 @@ export default function Admin() {
           <select className="select" style={{ width: 'auto', minWidth: 160 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="all">{t('c.all')}</option>
             <option value="pending">{t('st.pending')}</option>
+            <option value="paid">{t('st.paid')}</option>
             <option value="processing">{t('st.processing')}</option>
+            <option value="delivery_failed">{t('st.delivery_failed')}</option>
             <option value="completed">{t('st.completed')}</option>
             <option value="cancelled">{t('st.cancelled')}</option>
           </select>
         </div>
       </div>
       <div className="order-table-wrap"><table className="data-table">
-        <thead><tr><th>{t('suc.code')}</th><th>{t('ad.customer')}</th><th>{t('ad.product')}</th><th>{t('ad.method')}</th><th>{t('c.date')}</th><th className="text-right">{t('ad.amount')}</th><th>{t('c.status')}</th></tr></thead>
+        <thead><tr><th>{t('suc.code')}</th><th>{t('ad.customer')}</th><th>{t('ad.product')}</th><th>{t('ad.method')}</th><th>{t('c.date')}</th><th className="text-right">{t('ad.amount')}</th><th>{t('c.status')}</th><th>{t('c.action')}</th></tr></thead>
         <tbody>{orders.map((o) => (
           <tr key={o.code}>
             <td><Link to={`/track?code=${o.code}`} style={{ color: '#c4b5fd', fontWeight: 700 }}>{o.code}</Link></td>
@@ -294,10 +359,27 @@ export default function Admin() {
               <select className="select" style={{ padding: '6px 28px 6px 9px', fontSize: '.74rem', minWidth: 120, backgroundPosition: 'right 7px center' }}
                 value={o.status} onChange={(e) => changeStatus(o.code, e.target.value)}>
                 <option value="pending">{t('st.pending')}</option>
+                <option value="paid">{t('st.paid')}</option>
                 <option value="processing">{t('st.processing')}</option>
+                <option value="delivery_failed">{t('st.delivery_failed')}</option>
                 <option value="completed">{t('st.completed')}</option>
                 <option value="cancelled">{t('st.cancelled')}</option>
               </select>
+            </td>
+            <td>
+              <div className="row gap-6 nowrap">
+                {o.status === 'delivery_failed' && (
+                  <button className="btn btn-primary btn-xs" onClick={() => retryDelivery(o.code)} title={t('ad.retry')}>
+                    <RefreshCw size={11} /> {t('ad.retry')}
+                  </button>
+                )}
+                {o.payment?.status !== 'paid' && o.status !== 'cancelled' && o.payment?.verification === 'manual' && (
+                  <button className="btn btn-outline btn-xs" onClick={() => confirmPayment(o.code)} title={t('ad.confirmPayment')}>
+                    <CheckCircle2 size={11} /> {t('ad.confirmPayment')}
+                  </button>
+                )}
+                <Link to={`/pay/${o.code}`} className="btn btn-ghost btn-xs" title="KHQR"><Eye size={11} /></Link>
+              </div>
             </td>
           </tr>
         ))}</tbody>
