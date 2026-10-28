@@ -453,10 +453,30 @@
 .security-events > div { padding: 5px 0; border-bottom: 1px solid var(--line); }
 
 @media (max-width: 900px) {
+  .real-setup-guide-flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .pay-grid { grid-template-columns: 1fr; }
   .pay-qr-box { width: 220px; height: 220px; }
   .pay-preview { flex-direction: column; text-align: center; }
 }
+
+/* Admin → real account setup visual and product editor notes */
+.real-setup-guide { border-color: rgba(139,92,246,.28); }
+.real-setup-guide-intro { max-width: 850px; margin-bottom: 16px; line-height: 1.7; }
+.real-setup-guide-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.real-setup-guide-step { position: relative; min-height: 205px; padding: 16px; border: 1px solid var(--line); border-radius: 15px; background: linear-gradient(150deg, rgba(139,92,246,.075), rgba(15,21,38,.55)); }
+.real-guide-art { height: 62px; position: relative; display: flex; justify-content: center; align-items: center; margin-bottom: 12px; }
+.real-guide-index { position: absolute; top: 0; left: 0; color: rgba(167,139,250,.65); font-size: .7rem; font-weight: 850; letter-spacing: .08em; }
+.real-guide-icon { width: 48px; height: 48px; display: grid; place-items: center; color: #c4b5fd; border: 1px solid rgba(167,139,250,.3); border-radius: 15px; background: rgba(139,92,246,.13); }
+.real-guide-label { color: #67e8f9; font-size: .59rem; font-weight: 850; letter-spacing: .08em; }
+.real-setup-guide-step h3 { margin: 5px 0 7px; font-size: .88rem; }
+.real-setup-guide-step p { font-size: .74rem; line-height: 1.65; }
+.real-setup-guide-warning { margin-top: 15px; align-items: flex-start; }
+.real-setup-guide-warning svg { flex: 0 0 auto; margin-top: 2px; }
+.product-real-guide { align-items: flex-start; margin-bottom: 17px; }
+.product-real-guide > svg { flex: 0 0 auto; margin-top: 2px; }
+.product-real-guide > div { display: grid; gap: 7px; }
+.product-real-guide p { font-size: .77rem; line-height: 1.65; }
+.product-real-guide .btn { justify-self: start; }
 
 /* Admin → Real integrations: credential health + provider SKU mapping */
 .real-integration-panel .order-table-wrap { max-height: 620px; overflow: auto; }
@@ -465,6 +485,12 @@
 .real-integration-panel details { max-height: 230px; overflow: auto; }
 .real-integration-panel .badge { white-space: nowrap; }
 @media (max-width: 700px) {
+  .real-setup-guide-flow { grid-template-columns: 1fr; }
+  .real-setup-guide-step { min-height: 0; display: grid; grid-template-columns: 52px 1fr; column-gap: 12px; align-items: start; }
+  .real-guide-art { grid-row: span 3; height: 52px; margin: 0; }
+  .real-guide-label { grid-column: 2; }
+  .real-setup-guide-step h3 { grid-column: 2; margin: 0; }
+  .real-setup-guide-step p { grid-column: 2; }
   .real-integration-panel .form-grid { grid-template-columns: 1fr; }
   .real-integration-panel .order-table-wrap { max-height: 480px; }
 }

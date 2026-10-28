@@ -31,6 +31,40 @@ const EMPTY_PRODUCT = {
   descKh: '', descEn: '',
 };
 
+function RealSetupGuide({ t }) {
+  const steps = [
+    { icon: KeyRound, title: t('ad.realGuideStep1'), body: t('ad.realGuideStep1d'), label: t('ad.realGuideLabel1') },
+    { icon: Webhook, title: t('ad.realGuideStep2'), body: t('ad.realGuideStep2d'), label: t('ad.realGuideLabel2') },
+    { icon: Boxes, title: t('ad.realGuideStep3'), body: t('ad.realGuideStep3d'), label: t('ad.realGuideLabel3') },
+    { icon: CheckCircle2, title: t('ad.realGuideStep4'), body: t('ad.realGuideStep4d'), label: t('ad.realGuideLabel4') },
+  ];
+  return (
+    <section className="panel real-setup-guide" aria-labelledby="real-setup-guide-title">
+      <div className="panel-head">
+        <h2 id="real-setup-guide-title" style={{ fontSize: '1rem' }}><ShieldCheck size={17} /> {t('ad.realGuideTitle')}</h2>
+        <span className="badge badge-violet">{t('ad.realGuideBadge')}</span>
+      </div>
+      <div className="panel-body">
+        <p className="small text-dim real-setup-guide-intro">{t('ad.realGuideIntro')}</p>
+        <div className="real-setup-guide-flow">
+          {steps.map(({ icon: StepIcon, title, body, label }, index) => (
+            <article className="real-setup-guide-step" key={title}>
+              <div className="real-guide-art">
+                <span className="real-guide-index">0{index + 1}</span>
+                <span className="real-guide-icon"><StepIcon size={22} /></span>
+              </div>
+              <span className="real-guide-label">{label}</span>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+        <div className="alert alert-warn real-setup-guide-warning"><KeyRound size={15} /><span>{t('ad.credentialsNote')}</span></div>
+      </div>
+    </section>
+  );
+}
+
 export default function Admin() {
   const { t, L, lang, user, authLoading, notify, boot, loadBoot } = useStore();
   const [tab, setTab] = useState('overview');
@@ -420,6 +454,7 @@ export default function Admin() {
     const allPackages = products.flatMap((p) => (p.packages || []).map((pk) => ({ p, pk, key: `${p.slug}:${pk.id}` })));
     return (
       <div className="stack gap-20 real-integration-panel">
+        <RealSetupGuide t={t} />
         <div className="panel integration-panel">
           <div className="panel-head">
             <h2 style={{ fontSize: '1rem' }}><PlugZap size={17} /> {t('ad.realConnections')}</h2>
@@ -690,6 +725,16 @@ export default function Admin() {
             <div className="modal-head"><h3>{productModal.id ? t('ad.editProduct') : t('ad.addProduct')}</h3>
               <button type="button" className="icon-btn" onClick={() => setProductModal(null)}><X size={16} /></button></div>
             <div className="modal-body">
+              <div className="alert alert-info product-real-guide">
+                <KeyRound size={16} />
+                <div>
+                  <strong>{t('ad.productEditGuideTitle')}</strong>
+                  <p>{t('ad.productEditGuideBody')}</p>
+                  <button type="button" className="btn btn-outline btn-xs" onClick={() => { setProductModal(null); setTab('integrations'); }}>
+                    {t('ad.openRealGuide')} <ArrowUpRight size={13} />
+                  </button>
+                </div>
+              </div>
               <div className="form-grid">
                 <div className="form-group"><label className="field-label">{t('ad.name')} *</label>
                   <input className="input" required value={productModal.name} onChange={(e) => setProductModal({ ...productModal, name: e.target.value })} /></div>
@@ -705,7 +750,7 @@ export default function Admin() {
                   </select></div>
                 <div className="form-group"><label className="field-label">{t('p.currency')}</label>
                   <input className="input" value={productModal.currency} onChange={(e) => setProductModal({ ...productModal, currency: e.target.value })} placeholder="Diamonds" /></div>
-                <div className="form-group"><label className="field-label">{t('ad.price')} (USD) *</label>
+                <div className="form-group"><label className="field-label">{t('ad.templateBasePriceLabel')} *</label>
                   <input className="input" type="number" step="0.01" min="0.1" required value={productModal.basePrice} onChange={(e) => setProductModal({ ...productModal, basePrice: e.target.value })} /></div>
                 <div className="form-group"><label className="field-label">Tag</label>
                   <select className="select" value={productModal.tag} onChange={(e) => setProductModal({ ...productModal, tag: e.target.value })}>
@@ -725,7 +770,7 @@ export default function Admin() {
               <div className="form-group"><label className="field-label">Description (English)</label>
                 <textarea className="textarea" style={{ minHeight: 65 }} value={productModal.descEn} onChange={(e) => setProductModal({ ...productModal, descEn: e.target.value })} /></div>
               <label className="checkbox"><input type="checkbox" checked={!!productModal.featured} onChange={(e) => setProductModal({ ...productModal, featured: e.target.checked })} /> Featured on homepage</label>
-              <div className="alert alert-info"><Icon name="CircleHelp" size={14} /> 3 packages will be generated from the base price (×1, ×2.4, ×4.8).</div>
+              <div className="alert alert-warn"><AlertTriangle size={14} /> {t('ad.templatePackagesNote')}</div>
             </div>
             <div className="modal-foot"><button type="button" className="btn btn-outline btn-sm" onClick={() => setProductModal(null)}>{t('c.cancel')}</button>
               <button className="btn btn-primary btn-sm" disabled={busy}><Save size={14} /> {t('c.save')}</button></div>
