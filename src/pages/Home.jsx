@@ -229,6 +229,36 @@ function FAQ() {
   );
 }
 
+function TopUpGuide() {
+  const { t } = useStore();
+  const steps = [Gamepad2, Smartphone, CheckCircle2, Wallet];
+  return (
+    <section className="section topup-guide" aria-labelledby="topup-guide-title">
+      <div className="container">
+        <div className="topup-guide-heading">
+          <span className="eyebrow">{t('live.guideEyebrow')}</span>
+          <h2 id="topup-guide-title">{t('live.guideTitle')}</h2>
+          <p>{t('live.guideIntro')}</p>
+        </div>
+        <div className="topup-guide-steps">
+          {steps.map((StepIcon, index) => (
+            <article className="topup-guide-step" key={index}>
+              <div className="topup-guide-art">
+                <span className="topup-guide-number">0{index + 1}</span>
+                <span className="topup-guide-icon"><StepIcon size={27} /></span>
+              </div>
+              <h3>{t(`live.guideStep${index + 1}`)}</h3>
+              <p>{t(`live.guideStep${index + 1}d`)}</p>
+              {index < steps.length - 1 && <ArrowRight className="topup-guide-arrow" size={19} aria-hidden="true" />}
+            </article>
+          ))}
+        </div>
+        <div className="alert alert-info topup-guide-safety"><ShieldCheck size={17} /><span>{t('live.guideSafety')}</span></div>
+      </div>
+    </section>
+  );
+}
+
 function SetupOverview() {
   const { t, boot } = useStore();
   const checks = boot.payment?.checks || {};
@@ -278,6 +308,7 @@ export default function Home() {
     <>
       <Hero />
       <SetupOverview />
+      <TopUpGuide />
     </>
   );
 
