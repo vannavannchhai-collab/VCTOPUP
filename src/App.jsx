@@ -29,7 +29,10 @@ function ScrollManager() {
       };
       setTimeout(scroll, 60);
     } else {
-      window.scrollTo({ top: 0, behavior: 'instant' });
+      // Use the numeric overload for broad Safari/iOS compatibility. Some
+      // Safari versions reject behavior: 'instant', which can crash React's
+      // initial effect and leave the whole page blank.
+      window.scrollTo(0, 0);
     }
   }, [pathname, hash]);
   return null;
@@ -40,6 +43,11 @@ function ScrollManager() {
 function RevealManager() {
   const location = useLocation();
   useEffect(() => {
+    if (!('IntersectionObserver' in window) || !('MutationObserver' in window)) {
+      document.querySelectorAll('.reveal').forEach((el) => el.classList.add('in'));
+      return undefined;
+    }
+
     const observer = new IntersectionObserver((entries) => {
       entries.forEach((e) => {
         if (e.isIntersecting) { e.target.classList.add('in'); observer.unobserve(e.target); }
