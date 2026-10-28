@@ -44,7 +44,17 @@ function Hero() {
               {catalog.slice(0, 6).map((product) => <div className="hero-brand-card" key={product.id}><ProductArt product={product} /><span>{product.name}</span></div>)}
             </div>
           ) : (
-            <div className="live-setup-card"><LockKeyhole size={38} /><strong>{t('live.catalogLocked')}</strong><p>{t('live.catalogNotReady')}</p></div>
+            <div className="live-setup-card">
+              <div className="setup-visual-orbit orbit-one" />
+              <div className="setup-visual-orbit orbit-two" />
+              <div className="setup-visual-mark"><Zap size={34} fill="currentColor" /></div>
+              <div className="setup-visual-copy">
+                <span className="setup-visual-kicker">VC TOPUP · KH / EN</span>
+                <strong>{t('live.setupVisual')}</strong>
+                <p>{t('live.setupVisualText')}</p>
+              </div>
+              <div className="setup-visual-footer"><span>ខ្មែរ · EN</span><span>{t('live.setupInProgress')}</span></div>
+            </div>
           )}
         </div>
       </div>
@@ -214,6 +224,42 @@ function FAQ() {
   );
 }
 
+function SetupOverview() {
+  const { t, boot } = useStore();
+  const checks = boot.payment?.checks || {};
+  const sections = [
+    { icon: CreditCard, title: t('live.setupPayments'), keys: ['durableStore', 'signingSecret', 'bakongToken', 'bakongAccount', 'bakongMerchant', 'bakongApiBase', 'bakongCurrencyRate'] },
+    { icon: Package, title: t('live.setupDelivery'), keys: ['partnerProvider', 'partnerEndpoint', 'partnerCredentials', 'partnerWebhook', 'partnerSkus'] },
+    { icon: ShieldCheck, title: t('live.setupAccounts'), keys: ['googleSignIn', 'telegramSignIn', 'cronSecret'] },
+  ];
+  return (
+    <section className="section setup-overview">
+      <div className="container">
+        <div className="setup-overview-heading">
+          <div><span className="eyebrow">{t('live.setupEyebrow')}</span><h2>{t('live.setupTitle')}</h2><p>{t('live.setupSummary')}</p></div>
+          <span className={`setup-overall ${boot.payment?.live && boot.payment?.ready ? 'ready' : ''}`}>
+            <span className="setup-overall-dot" />{boot.payment?.live && boot.payment?.ready ? t('live.setupReady') : t('live.setupInProgress')}
+          </span>
+        </div>
+        <div className="setup-grid">
+          {sections.map(({ icon: Icon, title, keys }, index) => {
+            const configured = keys.every((key) => checks[key] === true);
+            return (
+              <article className={`setup-card ${configured ? 'configured' : ''}`} key={title} style={{ '--setup-index': index }}>
+                <div className="setup-card-top"><span className="setup-card-icon"><Icon size={19} /></span>
+                  <span className={`setup-card-state ${configured ? 'is-ready' : ''}`}><span />{configured ? t('live.setupReady') : t('live.setupNeeded')}</span></div>
+                <h3>{title}</h3>
+                <div className="setup-progress"><span style={{ width: configured ? '100%' : '24%' }} /></div>
+              </article>
+            );
+          })}
+        </div>
+        <p className="setup-footnote"><LockKeyhole size={14} /> {t('live.setupFootnote')}</p>
+      </div>
+    </section>
+  );
+}
+
 export default function Home() {
   const { t, boot } = useStore();
   const [products, setProducts] = useState([]);
@@ -226,12 +272,7 @@ export default function Home() {
   if (!boot.productCount) return (
     <>
       <Hero />
-      <section className="section live-store-status"><div className="container">
-        <div className="panel"><div className="panel-body live-store-status-inner">
-          <LockKeyhole size={28} /><div><h2>{t('live.catalogLocked')}</h2><p>{t('live.catalogNotReady')}</p></div>
-          <Link to="/contact" className="btn btn-outline btn-sm">{t('nav.contact')} <ArrowRight size={15} /></Link>
-        </div></div>
-      </div></section>
+      <SetupOverview />
     </>
   );
 
