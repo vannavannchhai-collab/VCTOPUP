@@ -3,8 +3,10 @@ export const usdShort = (n) => {
   const v = Number(n) || 0;
   return `$${Number.isInteger(v) ? v : v.toFixed(2)}`;
 };
-export const khr = (n, rate = 4100) => {
-  const value = Math.round(((Number(n) || 0) * rate) / 100) * 100;
+export const khr = (n, rate = null) => {
+  const fx = Number(rate);
+  if (!Number.isFinite(fx) || fx <= 0) return '';
+  const value = Math.round(((Number(n) || 0) * fx) / 100) * 100;
   return `${value.toLocaleString('en-US')} ៛`;
 };
 

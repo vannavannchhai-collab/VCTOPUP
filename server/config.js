@@ -14,7 +14,7 @@ import {
 
 const env = process.env;
 
-export const PAYMENT_MODE = (env.PAYMENT_MODE || 'sandbox').toLowerCase() === 'live' ? 'live' : 'sandbox';
+export const PAYMENT_MODE = (env.PAYMENT_MODE || 'live').toLowerCase() === 'sandbox' ? 'sandbox' : 'live';
 export const isLive = PAYMENT_MODE === 'live';
 
 export const hasDurableStore = () => isPostgresUrl(env.DATABASE_URL);
@@ -84,6 +84,8 @@ export function shop2topupConfig() {
     timeoutMs: Math.max(3000, Number(env.SHOP2TOPUP_TIMEOUT_MS || 15000)),
     validatePlayer: String(env.SHOP2TOPUP_VALIDATE_PLAYER || 'true').toLowerCase() !== 'false',
     maxCostRatio: Math.max(0.1, Math.min(1, Number(env.SHOP2TOPUP_MAX_COST_RATIO || 1))),
+    retailMultiplier: Math.max(1, Math.min(3, Number(env.SHOP2TOPUP_RETAIL_MULTIPLIER || 1.1))),
+    priceMaxAgeMs: Math.max(60_000, Number(env.SHOP2TOPUP_PRICE_MAX_AGE_HOURS || 24) * 60 * 60_000),
     skuMap: p.skuMap,
     webhookUrl: p.webhookUrl,
   };
@@ -99,8 +101,12 @@ function catalogCoverage(provider, skuMap) {
     for (const pk of p.packages || []) {
       total += 1;
       const item = { productSlug: p.slug, packageId: pk.id, partnerSku: pk.partnerSku };
-      if (hasFulfillableSku(item, skuMap, provider)) mapped += 1;
-      else if (missing.length < 12) missing.push({ product: p.name || p.slug, slug: p.slug, packageId: pk.id, label: pk.label });
+      const mappedSku = hasFulfillableSku({ ...item, partnerSku: pk.partnerSku }, skuMap, provider);
+      const checked = Date.parse(pk.providerPriceCheckedAt || '');
+      const priceVerified = Number.isFinite(checked) && Date.now() - checked <= shop2topupConfig().priceMaxAgeMs;
+      if (mappedSku && (provider !== 'shop2topup' || priceVerified)) mapped += 1;
+      else if (missing.length < 12) missing.push({ product: p.name || p.slug, slug: p.slug, packageId: pk.id, label: pk.label,
+        reason: !mappedSku ? 'missing provider item ID' : 'provider price not verified / expired' });
     }
   }
   return { mapped, total, missing, ready: total > 0 && mapped > 0 };
@@ -125,6 +131,7 @@ export function integrationStatus() {
     bakongAccount: isBakongAccountId(b.accountId),
     bakongMerchant: isRealValue(env.BAKONG_MERCHANT_NAME, 2) && isRealValue(env.BAKONG_MERCHANT_CITY, 2),
     bakongApiBase: isHttpsUrl(b.base),
+    bakongCurrencyRate: b.currency !== 'KHR' || Number.isFinite(Number(env.BAKONG_KHR_PER_USD)) && Number(env.BAKONG_KHR_PER_USD) >= 1000,
     partnerProvider: ['shop2topup', 'generic'].includes(p.provider),
     partnerEndpoint: isHttpsUrl(isShop2 ? s.base : p.url),
     partnerCredentials: isShop2
@@ -134,11 +141,13 @@ export function integrationStatus() {
       ? isStrongSecret(s.webhookSecret, 16) && Boolean(p.webhookUrl)
       : isStrongSecret(p.callbackSecret, 16) && Boolean(p.webhookUrl),
     partnerSkus: coverage.ready && !p.skuMapError,
+    googleSignIn: /^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/i.test(env.GOOGLE_CLIENT_ID || ''),
+    telegramSignIn: isRealValue(env.TELEGRAM_BOT_USERNAME, 4) && /^\d+:[A-Za-z0-9_-]{30,}$/.test(env.TELEGRAM_BOT_TOKEN || ''),
     cronSecret: isStrongSecret(env.CRON_SECRET, 24),
   };
   const required = isLive
-    ? ['durableStore', 'signingSecret', 'bakongToken', 'bakongAccount', 'bakongMerchant', 'bakongApiBase',
-      'partnerProvider', 'partnerEndpoint', 'partnerCredentials', 'partnerWebhook', 'partnerSkus', 'cronSecret']
+    ? ['durableStore', 'signingSecret', 'bakongToken', 'bakongAccount', 'bakongMerchant', 'bakongApiBase', 'bakongCurrencyRate',
+      'partnerProvider', 'partnerEndpoint', 'partnerCredentials', 'partnerWebhook', 'partnerSkus', 'googleSignIn', 'telegramSignIn', 'cronSecret']
     : [];
   const blockers = required.filter((k) => !checks[k]);
 
@@ -167,7 +176,7 @@ export function integrationStatus() {
 export class LiveNotReadyError extends Error {
   constructor(blockers) {
     super(`Live payments are not configured. Missing: ${blockers.join(', ')}. ` +
-      'Set the required environment variables (see .env.example) or use PAYMENT_MODE=sandbox.');
+      'Set the required real environment variables (see .env.example); customer checkout does not have a simulated fallback.');
     this.name = 'LiveNotReadyError';
     this.status = 503;
     this.blockers = blockers;
@@ -180,8 +189,14 @@ export function assertLiveReady(items = []) {
   const s = integrationStatus();
   if (!s.ready) throw new LiveNotReadyError(s.blockers);
   const p = partnerConfig();
+  const priceMaxAgeMs = shop2topupConfig().priceMaxAgeMs;
   const missing = items
-    .filter((i) => !hasFulfillableSku(i, p.skuMap, p.provider))
+    .filter((i) => {
+      if (!hasFulfillableSku(i, p.skuMap, p.provider)) return true;
+      if (p.provider !== 'shop2topup') return false;
+      const checked = Date.parse(i.providerPriceCheckedAt || '');
+      return !Number.isFinite(checked) || Date.now() - checked > priceMaxAgeMs;
+    })
     .map((i) => `${i.productSlug}:${i.packageId}`);
   if (missing.length) {
     throw new LiveNotReadyError([`partnerSkus:${[...new Set(missing)].join(',')}`]);

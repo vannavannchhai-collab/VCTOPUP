@@ -20,14 +20,8 @@ export default function About() {
       </div></div>
 
       <div className="container">
-        <Reveal className="about-visual">
-          <img src="/img/hero-gem.webp" alt="VC TOPUP" />
-          <div className="overlay-text">
-            <div>
-              <div className="badge badge-violet" style={{ marginBottom: 14 }}><Sparkles size={12} /> EST. 2022 · CAMBODIA</div>
-              <h2 style={{ fontSize: 'clamp(1.6rem, 3vw, 2.4rem)' }}>Powering every player's next level</h2>
-            </div>
-          </div>
+        <Reveal className="about-visual official-about-mark">
+          <div className="about-brand-wordmark"><Sparkles size={32} /><strong>VC TOPUP</strong><span>Verified digital goods only</span></div>
         </Reveal>
 
         <div className="story-grid">
@@ -41,11 +35,7 @@ export default function About() {
               <span className="badge badge-cyan"><Zap size={11} /> {t('ab.mission')}</span>
               <h3 style={{ fontSize: '1.35rem', margin: '16px 0 10px' }}>{t('ab.missionText')}</h3>
               <div className="divider" style={{ margin: '20px 0' }} />
-              <div className="account-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 0 }}>
-                <div style={{ textAlign: 'center' }}><div className="fw-800 gradient-text" style={{ fontSize: '1.7rem' }}>30+</div><small className="text-dim">Games</small></div>
-                <div style={{ textAlign: 'center' }}><div className="fw-800 gradient-text" style={{ fontSize: '1.7rem' }}>40k+</div><small className="text-dim">Customers</small></div>
-                <div style={{ textAlign: 'center' }}><div className="fw-800 gradient-text" style={{ fontSize: '1.7rem' }}>24/7</div><small className="text-dim">Support</small></div>
-              </div>
+              <div className="about-verified-note"><ShieldCheck size={18} /><span>{boot.productCount ? `${boot.productCount} ${t('live.verifiedOffers')}` : t('live.catalogNotReady')}</span></div>
               <div className="alert alert-info" style={{ marginTop: 20 }}><Heart size={15} /> {t('ft.made')}</div>
               <Link to="/shop" className="btn btn-primary btn-block" style={{ marginTop: 18 }}>{t('cart.start')} <ArrowRight size={16} /></Link>
             </div>

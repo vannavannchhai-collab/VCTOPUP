@@ -10,20 +10,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, '..');
 
 /**
- * Where the demo JSON store lives.
+ * Local JSON store is for development only; live orders require Postgres.
  *
  * A Vercel Function's project filesystem is read-only — only /tmp is writable.
  * Writing to ROOT/data there throws EROFS, which surfaces as a 500 (and, when
  * it happens during bootstrap, as a broken/404-looking deployment). /tmp keeps
- * the demo functional, but it is per-instance and wiped on cold starts, so it
- * is NOT durable. For real orders, point VC_DATA_DIR at a mounted volume or,
- * much better, replace this module with Postgres / Vercel KV / Turso.
+ * useful for local development, but it is per-instance and wiped on cold starts,
+ * so it is NOT durable. Live payment requires durable Postgres.
  */
 const DATA_DIR = process.env.VC_DATA_DIR
   || (process.env.VERCEL ? '/tmp/vctopup-data' : path.join(ROOT, 'data'));
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
-export const SECRET = process.env.VC_SECRET || 'vctopup-demo-secret-change-me-in-production';
+// Never ship a known fallback signing secret. Live deployments must set a stable, strong VC_SECRET.
+export const SECRET = process.env.VC_SECRET || crypto.randomBytes(32).toString('hex');
 
 // ------------------------------------------------------------------ crypto
 export function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -66,99 +66,61 @@ export const uid = (prefix = 'id') => `${prefix}_${crypto.randomBytes(5).toStrin
 export const orderCode = (d = new Date()) =>
   `VC-${d.getFullYear().toString().slice(2)}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
 
-// -------------------------------------------------------------- demo orders
-function makeDemoOrders() {
-  const customers = [
-    ['ដារ៉ា សុភាព', '012345678', 'dara@example.com'],
-    ['វិចិត្រ ចាន់ថា', '010987654', 'vichetr@example.com'],
-    ['សុភាវី រិទ្ធី', '011222333', 'sopheavy@example.com'],
-    ['ម៉ាឡែន ពិសិដ្ឋ', '077888999', 'malen@example.com'],
-    ['Rathanak Pich', '016555444', 'rathanak@example.com'],
-    ['Sreyneath Kong', '069111222', 'sreyneath@example.com'],
-  ];
-  const picks = [
-    ['mobile-legends', 3], ['free-fire', 2], ['metfone', 4], ['pubg-mobile', 2],
-    ['smart', 1], ['steam-wallet', 2], ['tiktok-coins', 1], ['genshin-impact', 2],
-    ['netflix', 1], ['valorant', 1], ['cellcard', 2], ['spotify', 1],
-  ];
-  const statuses = ['completed', 'completed', 'completed', 'completed', 'completed', 'processing', 'completed', 'pending', 'completed', 'cancelled', 'completed', 'completed'];
-  const methods = ['aba', 'wing', 'truemoney', 'acleda', 'wallet'];
-  const out = [];
-
-  for (let i = 0; i < 34; i++) {
-    const d = new Date(Date.now() - i * 21 * 60 * 60 * 1000 - (i % 5) * 3600 * 1000);
-    const [slug, pkgIndex] = picks[i % picks.length];
-    const p = products.find((x) => x.slug === slug);
-    const pk = p.packages[Math.min(pkgIndex, p.packages.length - 1)];
-    const customer = customers[i % customers.length];
-    const qty = i % 7 === 0 ? 2 : 1;
-    const subtotal = pk.price * qty;
-    const discount = i % 5 === 0 ? +(subtotal * 0.1).toFixed(2) : 0;
-    const total = +(subtotal - discount).toFixed(2);
-    const status = i < 6 ? statuses[i % statuses.length] : (i % 11 === 0 ? 'cancelled' : i % 7 === 0 ? 'processing' : i % 13 === 0 ? 'pending' : 'completed');
-    out.push({
-      code: orderCode(d) + String(i).padStart(2, '0'),
-      userId: i % 3 === 0 ? 'usr_demo1' : null,
-      items: [{
-        productId: p.id,
-        productSlug: p.slug,
-        productName: p.name,
-        productIcon: p.icon,
-        productColors: p.colors,
-        packageId: pk.id,
-        packageLabel: pk.label,
-        price: pk.price,
-        qty,
-        accountId: status === 'completed' ? '••••' + String(1000 + i).slice(-4) : '',
-        lineTotal: +(pk.price * qty).toFixed(2),
-      }],
-      subtotal: +subtotal.toFixed(2),
-      discount,
-      total,
-      promoCode: discount ? 'VC10' : '',
-      customer: { name: customer[0], phone: customer[1], email: customer[2], telegram: '' },
-      payment: { method: methods[i % methods.length], status: status === 'completed' ? 'paid' : 'pending', transactionId: status === 'completed' ? 'TXN' + (100000 + i * 137) : '' },
-      status,
-      note: '',
-      pointsEarned: Math.floor(total),
-      createdAt: d.toISOString(),
-      timeline: [
-        { status: 'pending', at: d.toISOString(), note: 'Order created' },
-        ...(status !== 'pending' ? [{ status: 'processing', at: new Date(d.getTime() + 60000).toISOString(), note: 'Payment verified' }] : []),
-        ...(status === 'completed' ? [{ status: 'completed', at: new Date(d.getTime() + 180000).toISOString(), note: 'Credits delivered' }] : []),
-        ...(status === 'cancelled' ? [{ status: 'cancelled', at: new Date(d.getTime() + 120000).toISOString(), note: 'Cancelled by admin' }] : []),
-      ],
-    });
-  }
-  return out.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-}
-
+// --------------------------------------------------------------- fresh state
 function seed() {
-  const users = [
-    { id: 'usr_demo1', name: 'ដារ៉ា សុភាព', email: 'dara@example.com', phone: '012345678', password: hashPassword('User@123'), role: 'user', balance: 25.5, points: 340, createdAt: new Date(Date.now() - 90 * 86400000).toISOString() },
-    { id: 'usr_demo2', name: 'Admin VC', email: 'admin@vctopup.com', phone: '012000000', password: hashPassword('Admin@123'), role: 'admin', balance: 0, points: 0, createdAt: new Date(Date.now() - 200 * 86400000).toISOString() },
-    { id: 'usr_demo3', name: 'វិចិត្រ ចាន់ថា', email: 'vichetr@example.com', phone: '010987654', password: hashPassword('User@123'), role: 'user', balance: 8.0, points: 120, createdAt: new Date(Date.now() - 60 * 86400000).toISOString() },
-  ];
   return {
-    version: 1,
+    version: 2,
     settings, categories, products, promos, reviews, faqs, paymentMethods,
-    users,
-    orders: makeDemoOrders(),
-    messages: [
-      { id: uid('msg'), name: 'Sokha', email: 'sokha@example.com', subject: 'សំណួរអំពីការបញ្ចូល', body: 'សូមជួយពិនិត្យការបញ្ជាទិញរបស់ខ្ញុំ។', read: false, createdAt: new Date(Date.now() - 3 * 86400000).toISOString() },
-    ],
-    counters: { visitors: 128450 },
+    users: [],
+    orders: [],
+    messages: [],
+    securityEvents: [],
+    partnerOrderMap: {},
+    webhookEvents: [],
+    counters: { visitors: 0 },
   };
 }
 
 // ------------------------------------------------------------------ storage
 let cache = null;
 
+/** One-time purge of the old sample storefront data in existing installations. */
+function purgeLegacyDemo(state) {
+  if (!state || Number(state.version || 1) >= 3) return false;
+  state.users = (state.users || []).filter((u) => !String(u.id || '').startsWith('usr_demo') && !/@example\.com$/i.test(u.email || '') && u.email !== 'admin@vctopup.com');
+  state.orders = (state.orders || []).filter((o) => o.payment?.verification !== 'sandbox' && !/@example\.com$/i.test(o.customer?.email || '') && !/^TXN\d+$/.test(o.payment?.transactionId || ''));
+  state.messages = (state.messages || []).filter((m) => !/@example\.com$/i.test(m.email || ''));
+  state.reviews = [];
+  state.promos = [];
+  state.paymentMethods = paymentMethods;
+  state.securityEvents ||= [];
+  state.partnerOrderMap ||= {};
+  state.webhookEvents ||= [];
+  state.counters = { ...(state.counters || {}), visitors: 0 };
+  state.settings = { ...settings, ...(state.settings || {}), phone: '', telegram: '', email: '',
+    address: { kh: '', en: '' }, announcement: { kh: '', en: '' },
+    stats: { orders: 0, customers: 0, games: 0, uptime: null } };
+  for (const user of state.users) { delete user.balance; delete user.points; }
+  for (const p of state.products || []) {
+    p.brand ||= products.find((seeded) => seeded.slug === p.slug)?.brand || null;
+    p.desc = products.find((seeded) => seeded.slug === p.slug)?.desc || p.desc;
+    p.sold = 0; p.rating = null; p.tag = null; p.featured = false; p.popular = false;
+    for (const pkg of p.packages || []) {
+      pkg.partnerSku = pkg.partnerSku && /^\d+$/.test(String(pkg.partnerSku)) ? pkg.partnerSku : null;
+      pkg.oldPrice = null; pkg.bonus = null; pkg.popular = false;
+      delete pkg.providerPriceCheckedAt; delete pkg.providerCost;
+    }
+  }
+  state.version = 3;
+  return true;
+}
+
 export function getDB() {
   if (cache) return cache;
   try {
     if (fs.existsSync(DB_FILE)) {
       cache = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+      if (purgeLegacyDemo(cache)) persist();
       return cache;
     }
   } catch (err) {
@@ -194,7 +156,7 @@ export function mutate(fn) {
 /* ------------------------------------------------------------------------
  * DURABLE STORE (required for LIVE payments)
  *
- * The JSON file above is fine for a demo but is per-instance and ephemeral on
+ * The JSON file is local development storage and is per-instance on
  * Vercel. When DATABASE_URL is set (Neon / Supabase / Vercel Postgres) we keep
  * the whole state in one JSONB row and serialize every write with
  * SELECT ... FOR UPDATE. That row lock is what makes
@@ -238,6 +200,10 @@ export function ensureStore() {
     const { rows } = await p.query('SELECT data FROM vc_state WHERE id = $1', [STATE_ID]);
     if (rows[0]?.data) {
       cache = rows[0].data;
+      if (purgeLegacyDemo(cache)) {
+        await p.query('UPDATE vc_state SET data = $2, updated_at = now() WHERE id = $1', [STATE_ID, cache]);
+        console.log('[store] removed legacy demo accounts/orders and sample claims');
+      }
       console.log('[store] loaded state from Postgres');
     } else {
       const fresh = seed();
@@ -297,8 +263,9 @@ export async function transact(fn) {
 export function publicUser(u) {
   if (!u) return null;
   return {
-    id: u.id, name: u.name, email: u.email, phone: u.phone,
-    role: u.role, balance: u.balance || 0, points: u.points || 0,
+    id: u.id, name: u.name, email: u.email || null, phone: u.phone || '',
+    telegram: u.telegram || '', authProvider: u.authProvider || 'password',
+    picture: u.picture || '', role: u.role,
     createdAt: u.createdAt,
   };
 }

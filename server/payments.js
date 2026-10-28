@@ -8,7 +8,7 @@
  *
  * INVARIANTS (do not break these):
  *  1. `fulfill()` is called ONLY when `order.payment.status === 'paid'`.
- *  2. `paid` is set ONLY by server-side verification (Bakong / admin / wallet),
+ *  2. `paid` is set ONLY by server-side Bakong verification,
  *     never by any value coming from the browser.
  *  3. Settling is done inside an atomic `transact()` with a re-check, so two
  *     concurrent polling requests can never deliver the same order twice.
@@ -19,7 +19,7 @@ import crypto from 'node:crypto';
 import { generateKHQR } from './khqr.js';
 import { checkTransactionByMd5 } from './bakong.js';
 import { fulfill, verifyCallback, planShop2TopupOrders, providerOrderRefs } from './partner.js';
-import { bakongConfig, integrationStatus, partnerConfig, isLive } from './config.js';
+import { bakongConfig, partnerConfig, isLive } from './config.js';
 import { readFresh, transact, getDB } from './db.js';
 
 const nowIso = () => new Date().toISOString();
@@ -31,65 +31,46 @@ function logSecurity(db, level, message, extra = {}) {
   db.securityEvents = db.securityEvents.slice(0, 200);
 }
 
-/** Attach a KHQR (or manual / wallet payment) to a newly-created order. */
+/** Attach a real Bakong KHQR to an order after the live readiness gate passes. */
 export function attachPayment(order, methodConfig, settings) {
+  if (!isLive || methodConfig?.id !== 'bakong' || methodConfig?.kind !== 'khqr') {
+    throw new Error('Only live Bakong KHQR checkout is supported.');
+  }
   const cfg = bakongConfig();
-  const status = integrationStatus();
-  const kind = methodConfig?.kind || 'khqr';
-  const base = {
+  const intent = generateKHQR({
+    accountId: cfg.accountId,
+    merchantName: cfg.merchantName,
+    merchantCity: cfg.merchantCity,
+    merchantId: cfg.merchantId,
+    acquiringBank: cfg.acquiringBank,
+    amount: order.total,
+    currency: cfg.currency,
+    billNumber: order.code,
+    storeLabel: 'VC TOPUP',
+    terminalLabel: 'WEB',
+    phoneNumber: settings?.phone || '',
+    ttlMs: cfg.ttlMs,
+  });
+  return {
     method: order.payment.method,
     status: 'pending',
-    mode: status.mode,
-    merchantName: status.merchantName,
+    mode: 'live',
+    verification: 'bakong',
+    merchantName: cfg.merchantName,
     currency: cfg.currency,
     amount: order.total,
     verifiedAmount: null,
     bakongHash: null,
-    transactionId: order.payment.transactionId || '',
+    transactionId: '',
     paidAt: null,
     lastCheckedAt: null,
     attempts: 0,
-    sandboxPaid: false,
+    qr: intent.qr,
+    md5: intent.md5,
+    billNumber: intent.billNumber,
+    expiresAt: intent.expiresAt,
+    accountId: cfg.accountId,
   };
-
-  if (kind === 'balance') {
-    // VC Wallet is an internal ledger: the debit IS the settlement.
-    return { ...base, status: 'paid', verification: 'wallet', paidAt: nowIso(), transactionId: `WALLET-${order.code}` };
-  }
-
-  if (kind === 'khqr') {
-    // CRITICAL: in sandbox the QR must NEVER point at a real merchant account,
-    // even if BAKONG_ACCOUNT_ID was filled in for a future live deployment.
-    const accountId = isLive ? cfg.accountId : 'vctopup@sandbox';
-    const intent = generateKHQR({
-      accountId,
-      merchantName: isLive ? cfg.merchantName : `SANDBOX ${cfg.merchantName}`,
-      merchantCity: cfg.merchantCity,
-      merchantId: cfg.merchantId,
-      acquiringBank: cfg.acquiringBank,
-      amount: order.total,
-      currency: cfg.currency,
-      billNumber: order.code,
-      storeLabel: 'VC TOPUP',
-      terminalLabel: 'WEB',
-      phoneNumber: settings?.phone || '',
-      ttlMs: cfg.ttlMs,
-    });
-    return {
-      ...base,
-      verification: isLive ? 'bakong' : 'sandbox',
-      qr: intent.qr,
-      md5: intent.md5,
-      billNumber: intent.billNumber,
-      expiresAt: intent.expiresAt,
-      accountId,
-      sandbox: !isLive,
-    };
-  }
-
-  // Wing / TrueMoney etc. have no automatic Bakong confirmation: a human must
-  // confirm the transfer in admin before anything is delivered.
-  return { ...base, verification: 'manual', accountName: methodConfig.account, accountNumber: methodConfig.number };
 }
 
 /** Public projection: never leak tokens, secrets, or internal signatures. */
@@ -111,16 +92,15 @@ export function publicPayment(order) {
     billNumber: p.billNumber || null,
     expiresAt: p.expiresAt || null,
     paidAt: p.paidAt || null,
-    sandbox: Boolean(p.sandbox),
-    sandboxPaid: Boolean(p.sandboxPaid),
   };
 }
 
 /** Verify the Bakong evidence before we accept it as payment. */
 function validateEvidence(evidence, order, cfg, db) {
   const problems = [];
-  const exchangeRate = Number(getDB().settings?.exchangeRate || 4100);
-  const expectedAmount = cfg.currency === 'KHR'
+  const exchangeRate = Number(process.env.BAKONG_KHR_PER_USD || getDB().settings?.exchangeRate || 0);
+  if (cfg.currency === 'KHR' && (!Number.isFinite(exchangeRate) || exchangeRate <= 0)) problems.push('KHR/USD settlement rate is not configured');
+  const expectedAmount = cfg.currency === 'KHR' && exchangeRate > 0
     ? Math.round(order.total * exchangeRate)
     : order.total;
   const tolerance = cfg.currency === 'KHR' ? 1 : 0.011;
@@ -153,6 +133,8 @@ export async function verifyPayment(code) {
   const db = await readFresh();
   const order = findOrder(db, code);
   if (!order) return { error: 'Order not found', status: 404 };
+  if (!isLive) return { error: 'Live Bakong verification is not enabled.', status: 503 };
+  if (order.payment?.verification !== 'bakong') return { error: 'This order has no verified Bakong payment intent.', status: 409 };
   if (!['pending', 'expired'].includes(order.payment.status)) {
     // Already settled (e.g. VC Wallet, admin confirmation, or a crash after
     // payment but before delivery). Self-heal by requesting a delivery.
@@ -171,23 +153,11 @@ export async function verifyPayment(code) {
 
   // Throttle outbound Bakong calls (one per QR per N seconds).
   const last = order.payment.lastCheckedAt ? new Date(order.payment.lastCheckedAt).getTime() : 0;
-  if (isLive && now - last < cfg.pollThrottleMs) return { order, shouldDeliver: false, throttled: true };
+  if (now - last < cfg.pollThrottleMs) return { order, shouldDeliver: false, throttled: true };
 
   let evidence = null;
   try {
-    if (order.payment.verification === 'sandbox') {
-      evidence = order.payment.sandboxPaid ? {
-        paid: true, hash: `SANDBOX-${order.code}`, amount: order.total,
-        currency: cfg.currency, toAccountId: order.payment.accountId,
-      } : { paid: false };
-    } else if (order.payment.verification === 'bakong') {
-      evidence = await checkTransactionByMd5(order.payment.md5);
-    } else if (order.payment.verification === 'wallet') {
-      evidence = { paid: true, hash: `WALLET-${order.code}`, amount: order.total, currency: cfg.currency };
-    } else {
-      // Manual transfer: only an admin can settle. Never auto-confirm.
-      evidence = { paid: false };
-    }
+    evidence = await checkTransactionByMd5(order.payment.md5);
   } catch (err) {
     await transact((d) => {
       const o = findOrder(d, code);
@@ -237,23 +207,13 @@ export async function verifyPayment(code) {
     o.status = 'paid';
     o.timeline.push({
       status: 'paid', at,
-      note: isLive
-        ? `Payment confirmed by Bakong (${evidence.hash || 'no hash'})${expired ? ' — late settlement' : ''}`
-        : 'SANDBOX: payment simulated',
+      note: `Payment confirmed by Bakong (${evidence.hash || 'no hash'})${expired ? ' — late settlement' : ''}`,
     });
     logSecurity(d, 'info', 'Order settled', { code, hash: evidence.hash, amount: evidence.amount });
     return { already: false, order: o };
   });
 
   return { order: settled.order, shouldDeliver: !settled.already, settled: true };
-}
-
-function awardPoints(d, order) {
-  if (order.pointsAwarded) return;
-  order.pointsAwarded = true;
-  if (!order.userId) return;
-  const u = d.users.find((x) => x.id === order.userId);
-  if (u) u.points = (u.points || 0) + (order.pointsEarned || 0);
 }
 
 /** Persist a partner result and keep the provider webhook lookup up to date. */
@@ -268,7 +228,6 @@ function applyFulfillmentResult(code, result) {
       message: result.message,
       attempts: result.attempts || o.fulfillment?.attempts || 1,
       lastAttemptAt: nowIso(),
-      sandbox: Boolean(result.sandbox),
       ...(result.provider ? { provider: result.provider } : {}),
       ...(result.providerOrders ? { providerOrders: result.providerOrders } : {}),
       ...(result.providerResults ? { providerResults: result.providerResults } : {}),
@@ -280,8 +239,7 @@ function applyFulfillmentResult(code, result) {
       o.status = 'completed';
       o.deliveredAt = nowIso();
       o.payment.status = 'paid';
-      o.timeline.push({ status: 'completed', at: nowIso(), note: result.sandbox ? 'SANDBOX: simulated delivery' : `Credits delivered (${result.ref || 'partner confirmed'})` });
-      awardPoints(d, o);
+      o.timeline.push({ status: 'completed', at: nowIso(), note: `Provider confirmed delivery (${result.ref || 'partner confirmed'})` });
       for (const item of o.items) {
         const p = d.products.find((x) => x.id === item.productId || x.slug === item.productSlug);
         if (p) p.sold = (p.sold || 0) + item.qty;
@@ -303,8 +261,8 @@ export async function deliverOrder(code, { force = false } = {}) {
   const order = findOrder(db, code);
   if (!order) return { error: 'Order not found', status: 404 };
   if (order.status === 'completed' && !force) return { order, skipped: true };
-  if (order.payment.status !== 'paid' && !force) {
-    return { error: 'Refusing to deliver: payment has not been verified', status: 409, order };
+  if (order.payment.status !== 'paid') {
+    return { error: 'Refusing to deliver: payment has not been verified by Bakong', status: 409, order };
   }
 
   // Atomic claim. Under Postgres the row lock makes two concurrent pollers
@@ -312,7 +270,7 @@ export async function deliverOrder(code, { force = false } = {}) {
   // A 2-minute stale lease lets the system recover from a crashed Function.
   const claimed = await transact((d) => {
     const o = findOrder(d, code);
-    if (!o) return false;
+    if (!o || o.payment?.status !== 'paid' || o.status === 'cancelled') return false;
     if (o.status === 'completed' && !force) return false;
     const inFlight = o.status === 'processing' && o.fulfillment?.lastAttemptAt &&
       Date.now() - new Date(o.fulfillment.lastAttemptAt).getTime() < 120_000;
@@ -352,35 +310,18 @@ export async function deliverOrder(code, { force = false } = {}) {
   return { order: updated, result };
 }
 
-/** SANDBOX ONLY — stand in for a bank app scan so the flow can be tested. */
-export async function simulateSandboxPayment(code) {
-  if (isLive) return { error: 'Simulation is disabled in live mode', status: 403 };
-  const order = await transact((d) => {
-    const o = findOrder(d, code);
-    if (!o) return null;
-    if (o.payment.verification !== 'sandbox') return null;
-    o.payment.sandboxPaid = true;
-    o.payment.status = 'pending';
-    o.payment.lastCheckedAt = null;
-    o.timeline.push({ status: 'pending', at: nowIso(), note: 'SANDBOX: bank payment simulated' });
-    return o;
-  });
-  if (!order) return { error: 'Order not found or not a sandbox KHQR payment', status: 404 };
-  return { order };
-}
-
 /** Regenerate an expired KHQR for an unpaid order (never for a paid one). */
 export async function refreshPaymentQR(code) {
-  const status = integrationStatus();
+  if (!isLive) return { error: 'Live Bakong payment is not enabled.', status: 503 };
   const cfg = bakongConfig();
   const updated = await transact((d) => {
     const o = findOrder(d, code);
     if (!o) return null;
     if (o.payment.status === 'paid' || o.status !== 'pending') return o;
-    if (!['bakong', 'sandbox', 'khqr'].includes(o.payment.verification)) return o;
+    if (o.payment.verification !== 'bakong') return o;
     const intent = generateKHQR({
       accountId: o.payment.accountId,
-      merchantName: isLive ? status.merchantName : `SANDBOX ${status.merchantName}`,
+      merchantName: cfg.merchantName,
       merchantCity: cfg.merchantCity,
       merchantId: cfg.merchantId,
       acquiringBank: cfg.acquiringBank,
@@ -392,32 +333,13 @@ export async function refreshPaymentQR(code) {
     });
     Object.assign(o.payment, {
       qr: intent.qr, md5: intent.md5, billNumber: intent.billNumber,
-      expiresAt: intent.expiresAt, status: 'pending', sandboxPaid: false,
+      expiresAt: intent.expiresAt, status: 'pending',
       lastCheckedAt: null, discrepancy: null,
     });
     o.timeline.push({ status: 'pending', at: nowIso(), note: 'New KHQR generated' });
     return o;
   });
   return updated ? { order: updated } : { error: 'Order not found', status: 404 };
-}
-
-/** Admin: confirm a manual bank/e-wallet transfer, then deliver. */
-export async function adminConfirmPayment(code, adminId, note = '') {
-  const settled = await transact((d) => {
-    const o = findOrder(d, code);
-    if (!o) return null;
-    if (o.payment.status === 'paid' || o.status !== 'pending') return { already: true, order: o };
-    o.payment.status = 'paid';
-    o.payment.paidAt = nowIso();
-    o.payment.verifiedAmount = o.total;
-    o.payment.manualConfirmedBy = adminId;
-    o.status = 'paid';
-    o.timeline.push({ status: 'paid', at: nowIso(), note: note || 'Payment manually confirmed by admin' });
-    logSecurity(d, 'info', 'Manual payment confirmation', { code, adminId });
-    return { already: false, order: o };
-  });
-  if (!settled) return { error: 'Order not found', status: 404 };
-  return { order: settled.order, shouldDeliver: !settled.already };
 }
 
 /** Signed partner callback (for partners that deliver asynchronously). */
@@ -488,7 +410,6 @@ export async function handlePartnerCallback(rawBody, signature = '', timestamp =
       o.status = 'completed';
       o.deliveredAt = nowIso();
       o.timeline.push({ status: 'completed', at: nowIso(), note: `Partner callback confirmed delivery (${transactionId || state})` });
-      awardPoints(d, o);
     } else if (failed && o.status !== 'completed') {
       o.status = 'delivery_failed';
       o.timeline.push({ status: 'delivery_failed', at: nowIso(), note: `Partner callback reported ${state}` });

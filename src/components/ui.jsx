@@ -3,35 +3,15 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Check, Copy, Star as StarIcon } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { usd, khr, statusTone } from '../lib/format.js';
-import Icon from './Icon.jsx';
+import BrandLogo from './BrandLogo.jsx';
 
 /* ------------------------------------------------------------- ProductArt */
 export function ProductArt({ product, className = '', style, compact = false }) {
-  const colors = product?.colors || product?.productColors || ['#8b5cf6', '#312e81'];
-  const name = product?.name || product?.productName || 'VC';
-  const iconName = product?.icon || product?.productIcon || 'Package';
-  const initial = (name.match(/[A-Za-z0-9]/g) || ['V'])[0].toUpperCase();
-  const seed = (product?.slug || name).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const sparks = Array.from({ length: 7 }, (_, i) => ({
-    left: `${(seed * (i + 3) * 7) % 92 + 4}%`,
-    top: `${(seed * (i + 5) * 13) % 78 + 8}%`,
-    size: 2 + ((seed + i * 3) % 3),
-    delay: `${(i * 0.35).toFixed(2)}s`,
-  }));
+  const name = product?.name || product?.productName || 'VC TOPUP';
+  const brand = product?.brand || product?.productBrand || '';
   return (
-    <div
-      className={`product-art ${className}`}
-      style={{ '--art-a': colors[0], '--art-b': colors[1], ...style }}
-    >
-      <div className="art-watermark" aria-hidden="true">{initial}</div>
-      <div className="art-icon" aria-hidden="true"><Icon name={iconName} size={compact ? 34 : 56} strokeWidth={1.35} /></div>
-      {sparks.map((s, i) => (
-        <span key={i} className="art-spark" style={{
-          left: s.left, top: s.top, width: s.size, height: s.size,
-          animation: `blink ${2.4 + i * 0.3}s ease-in-out ${s.delay} infinite`,
-        }} />
-      ))}
-      <div className="art-shine" aria-hidden="true" />
+    <div className={`product-art official-brand-art ${className}`} style={style}>
+      <BrandLogo brand={brand} label={name} compact={compact} />
     </div>
   );
 }
@@ -42,7 +22,7 @@ export function Price({ value, size = '', rate, showKhr = true, className = '' }
   return (
     <span className={`price ${size} ${className}`}>
       <span className="usd">{usd(value)}</span>
-      {showKhr && <span className="khr">{khr(value, rate || ctxRate)}</span>}
+      {showKhr && (rate || ctxRate) && <span className="khr">{khr(value, rate || ctxRate)}</span>}
     </span>
   );
 }

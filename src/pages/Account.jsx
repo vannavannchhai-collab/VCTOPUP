@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  LayoutDashboard, ShoppingBag, Wallet, Settings, LogOut, Wallet as WalletIcon,
-  Coins, TrendingUp, Plus, Gift, ArrowRight, CheckCircle2, Info, ShieldCheck,
+  LayoutDashboard, ShoppingBag, Settings, LogOut, TrendingUp, ArrowRight, Info, ShieldCheck,
   LockKeyhole, Save, Eye, Package,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
@@ -13,7 +12,6 @@ import { PageHead, StatusBadge } from '../components/ui.jsx';
 const TABS = [
   { id: 'overview', key: 'ad.overview', icon: LayoutDashboard },
   { id: 'orders', key: 'nav.orders', icon: ShoppingBag },
-  { id: 'wallet', key: 'nav.wallet', icon: WalletIcon },
   { id: 'settings', key: 'nav.settings', icon: Settings },
 ];
 
@@ -23,7 +21,6 @@ export default function Account() {
   const [tab, setTab] = useState(params.get('tab') || 'overview');
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
-  const [topupOpen, setTopupOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [profile, setProfile] = useState({ name: '', phone: '', telegram: '' });
   const [passwords, setPasswords] = useState({ current: '', next: '' });
@@ -37,24 +34,6 @@ export default function Account() {
   }, [user?.id]);
 
   const changeTab = (id) => { setTab(id); setParams(id === 'overview' ? {} : { tab: id }); };
-
-  const doTopup = async (amount) => {
-    setBusy(true);
-    try {
-      await api.post('/auth/wallet/topup', { amount });
-      await refreshUser();
-      notify(`$${amount} ${lang === 'kh' ? 'បានបន្ថែមទៅកាបូបរបស់អ្នក' : 'added to your wallet'}`, 'success');
-      setTopupOpen(false);
-    } catch (err) { notify(err.message, 'error'); }
-    finally { setBusy(false); }
-  };
-
-  const doRedeem = async () => {
-    setBusy(true);
-    try { const r = await api.post('/auth/wallet/redeem'); await refreshUser(); notify(r.message, 'success'); }
-    catch (err) { notify(err.message, 'error'); }
-    finally { setBusy(false); }
-  };
 
   const saveProfile = async (e) => {
     e.preventDefault(); setBusy(true); setMsg('');
@@ -91,19 +70,15 @@ export default function Account() {
           <div className="big-avatar">{initials(user.name)}</div>
           <div className="grow">
             <h1>{t('ac.hello')}, {user.name}</h1>
-            <p>{user.email} · {t('ac.member')} {dateShort(user.createdAt, lang)}</p>
+            <p>{user.email || (user.authProvider === 'telegram' ? 'Telegram' : 'Google')} · {t('ac.member')} {dateShort(user.createdAt, lang)}</p>
           </div>
           {user.role === 'admin' && <Link to="/admin" className="btn btn-outline btn-sm"><ShieldCheck size={15} /> {t('nav.admin')}</Link>}
           <button className="btn btn-ghost btn-sm" onClick={() => { logout(); notify(t('nav.logout'), 'info'); }}><LogOut size={15} /> {t('nav.logout')}</button>
         </div>
 
-        <div className="account-stats">
-          <div className="account-stat"><span className="as-icon" style={{ background: 'rgba(139,92,246,.14)', color: '#c4b5fd' }}><WalletIcon size={19} /></span>
-            <div className="as-value gradient-text">{usd(user.balance || 0)}</div><small>{t('ac.balance')}</small></div>
-          <div className="account-stat"><span className="as-icon" style={{ background: 'rgba(251,191,36,.14)', color: '#fcd34d' }}><Coins size={19} /></span>
-            <div className="as-value">{user.points || 0}</div><small>{t('ac.points')}</small></div>
+        <div className="account-stats real-account-stats">
           <div className="account-stat"><span className="as-icon" style={{ background: 'rgba(34,211,238,.14)', color: '#67e8f9' }}><ShoppingBag size={19} /></span>
-            <div className="as-value">{orders.length}</div><small>{t('ac.orders')}</small></div>
+            <div className="as-value">{orders.filter((o) => o.payment?.status === 'paid').length}</div><small>{t('ac.orders')}</small></div>
           <div className="account-stat"><span className="as-icon" style={{ background: 'rgba(52,211,153,.14)', color: '#6ee7b7' }}><TrendingUp size={19} /></span>
             <div className="as-value">{usd(spent)}</div><small>{t('ac.spent')}</small></div>
         </div>
@@ -134,18 +109,7 @@ export default function Account() {
                     ))}
                   </div>
                 </div>
-                <div className="panel">
-                  <div className="panel-head"><h2><Gift size={18} /> {t('ac.points')}</h2></div>
-                  <div className="panel-body">
-                    <div className="row between gap-16 wrap">
-                      <div><div className="fw-800" style={{ fontSize: '2rem' }}>{user.points || 0} <span className="small text-dim">PTS</span></div>
-                        <p className="small" style={{ marginTop: 4 }}>{t('why.3d')}</p></div>
-                      <button className="btn btn-primary btn-sm" disabled={(user.points || 0) < 100 || busy} onClick={doRedeem}><Gift size={15} /> {t('ac.redeem')}</button>
-                    </div>
-                    <div className="cat-bar-track" style={{ marginTop: 16 }}><div className="cat-bar-fill" style={{ width: `${Math.min(100, ((user.points || 0) % 100))}%` }} /></div>
-                    <div className="tiny text-dim" style={{ marginTop: 6 }}>{(user.points || 0) % 100} / 100 → $1.00</div>
-                  </div>
-                </div>
+
               </div>
             )}
 
@@ -176,28 +140,6 @@ export default function Account() {
               </div>
             )}
 
-            {/* -------------------------------------------------------- wallet */}
-            {tab === 'wallet' && (
-              <div className="panel">
-                <div className="panel-head"><h2><WalletIcon size={18} /> {t('nav.wallet')}</h2></div>
-                <div className="panel-body">
-                  <div className="row between gap-20 wrap" style={{ padding: '8px 0 18px' }}>
-                    <div><div className="tiny text-dim">{t('ac.balance')}</div>
-                      <div className="fw-800 gradient-text" style={{ fontSize: '2.6rem', lineHeight: 1.2 }}>{usd(user.balance || 0)}</div></div>
-                    <button className="btn btn-primary" onClick={() => setTopupOpen(true)}><Plus size={16} /> {t('ac.addFunds')}</button>
-                  </div>
-                  <div className="divider" />
-                  <h3 style={{ fontSize: '.95rem', margin: '20px 0 12px' }}>{t('ac.topupAmount')}</h3>
-                  <div className="wallet-actions">
-                    {[5, 10, 20, 50, 100].map((a) => (
-                      <button className="btn btn-outline btn-sm" key={a} disabled={busy} onClick={() => doTopup(a)}>${a}</button>
-                    ))}
-                  </div>
-                  <div className="alert alert-warn" style={{ marginTop: 20 }}><Info size={15} /> {t('ac.demoTopup')}</div>
-                </div>
-              </div>
-            )}
-
             {/* ------------------------------------------------------ settings */}
             {tab === 'settings' && (
               <div className="stack gap-20">
@@ -210,14 +152,14 @@ export default function Account() {
                       <div className="form-group"><label className="field-label">{t('au.phone')}</label>
                         <input className="input" value={profile.phone} onChange={(e) => setProfile({ ...profile, phone: e.target.value })} /></div>
                       <div className="form-group"><label className="field-label">{t('au.email')}</label>
-                        <input className="input" value={user.email} disabled /></div>
+                        <input className="input" value={user.email || (user.authProvider === 'telegram' ? 'Telegram account' : '—')} disabled /></div>
                       <div className="form-group"><label className="field-label">Telegram</label>
                         <input className="input" value={profile.telegram} onChange={(e) => setProfile({ ...profile, telegram: e.target.value })} placeholder="@username" /></div>
                     </div>
                     <button className="btn btn-primary btn-sm" style={{ marginTop: 18 }} disabled={busy}><Save size={15} /> {t('c.save')}</button>
                   </div>
                 </form>
-                <form className="panel" onSubmit={changePass}>
+                {user.authProvider === 'password' && <form className="panel" onSubmit={changePass}>
                   <div className="panel-head"><h2>{t('au.changePass')}</h2></div>
                   <div className="panel-body">
                     <div className="form-grid">
@@ -229,29 +171,14 @@ export default function Account() {
                     <button className="btn btn-outline btn-sm" style={{ marginTop: 18 }} disabled={busy}><LockKeyhole size={15} /> {t('au.changePass')}</button>
                     {msg && <div className="alert alert-info" style={{ marginTop: 14 }}><Info size={14} /> {msg}</div>}
                   </div>
-                </form>
+                </form>}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {topupOpen && (
-        <div className="modal-overlay" onClick={() => setTopupOpen(false)}>
-          <div className="modal" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h3>{t('ac.addFunds')}</h3><button className="icon-btn" onClick={() => setTopupOpen(false)}>✕</button></div>
-            <div className="modal-body">
-              <p className="small">{t('ac.topupAmount')}</p>
-              <div className="grid g2" style={{ gap: 10 }}>
-                {[5, 10, 20, 50, 100].map((a) => (
-                  <button className="btn btn-outline" key={a} disabled={busy} onClick={() => doTopup(a)}>+ ${a}</button>
-                ))}
-              </div>
-              <div className="alert alert-warn"><Info size={14} /> {t('ac.demoTopup')}</div>
-            </div>
-          </div>
-        </div>
-      )}
+
     </>
   );
 }

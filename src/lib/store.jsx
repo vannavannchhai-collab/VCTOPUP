@@ -13,14 +13,14 @@ const write = (key, value) => { try { localStorage.setItem(key, JSON.stringify(v
 
 const DEFAULT_BOOT = {
   settings: {
-    siteName: 'VC TOPUP', exchangeRate: 4100, phone: '+855 12 345 678',
-    telegram: '@vctopup', email: 'support@vctopup.com',
+    siteName: 'VC TOPUP', exchangeRate: null, phone: '',
+    telegram: '', email: '',
     announcement: { kh: '', en: '' }, tagline: { kh: '', en: '' },
-    address: { kh: '', en: '' }, stats: { orders: 128450, customers: 42900, games: 30, uptime: 99.9 },
+    address: { kh: '', en: '' }, stats: { orders: 0, customers: 0, games: 0, uptime: null },
   },
   categories: [], paymentMethods: [], reviews: [], faqs: [],
-  featured: [], popular: [], productCount: 30,
-  payment: { mode: 'sandbox', live: false, ready: true, blockers: [], checks: {} },
+  featured: [], popular: [], productCount: 0,
+  payment: { mode: 'live', live: false, ready: false, blockers: ['Live configuration status unavailable'], checks: {} },
 };
 
 export function StoreProvider({ children }) {
@@ -114,6 +114,13 @@ export function StoreProvider({ children }) {
     return finishAuth(res);
   }, [finishAuth]);
 
+  const socialLogin = useCallback(async (provider, credential) => {
+    const endpoint = provider === 'google' ? '/auth/google' : '/auth/telegram';
+    const body = provider === 'google' ? { credential } : credential;
+    const res = await api.post(endpoint, body);
+    return finishAuth(res);
+  }, [finishAuth]);
+
   const logout = useCallback(() => {
     setToken(null); setUser(null);
   }, []);
@@ -126,10 +133,10 @@ export function StoreProvider({ children }) {
   const value = {
     lang, setLang, t, L,
     boot, bootLoading, bootError, loadBoot,
-    settings: boot.settings, rate: boot.settings?.exchangeRate || 4100,
+    settings: boot.settings, rate: boot.settings?.exchangeRate || null,
     cart, addToCart, removeFromCart, updateQty, clearCart, cartCount, cartSubtotal,
     promo, setPromo, cartOpen, setCartOpen,
-    user, authLoading, login, register, logout, refreshUser,
+    user, authLoading, login, register, socialLogin, logout, refreshUser,
     toasts, notify, dismissToast,
     ApiError,
   };

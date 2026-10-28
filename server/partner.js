@@ -74,17 +74,6 @@ function interpret(json, httpStatus) {
   return { state: 'failed', message: json?.message || json?.error || 'Partner rejected the order', ref: null };
 }
 
-/** Sandbox stand-in: never calls the network, never delivers real credits. */
-export async function sandboxFulfill(order) {
-  await sleep(700);
-  return {
-    state: 'completed',
-    ref: `SANDBOX-${order.code}`,
-    message: 'SANDBOX: simulated partner delivery — no real diamonds were sent.',
-    sandbox: true,
-  };
-}
-
 /** Stable provider-order IDs, used to map webhooks before the first API call. */
 export function providerOrderRefs(order) {
   if (partnerConfig().provider !== 'shop2topup') return [];
@@ -317,7 +306,7 @@ async function fulfillGeneric(order) {
  * line and polls status; the generic adapter retries only transient failures.
  */
 export async function fulfill(order) {
-  if (!isLive) return sandboxFulfill(order);
+  if (!isLive) return { state: 'failed', message: 'Real payment mode is disabled; fulfillment is refused.', ref: null };
   if (partnerConfig().provider === 'shop2topup') return fulfillShop2Topup(order);
   return fulfillGeneric(order);
 }

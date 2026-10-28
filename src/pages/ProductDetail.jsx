@@ -2,18 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Star, Zap, ShieldCheck, Clock3, ShoppingCart, ArrowRight, Minus, Plus,
-  Info, CheckCircle2, Send, Headphones, Sparkles,
+  Info, CheckCircle2, Sparkles,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { api } from '../lib/api.js';
-import { usd, khr, compact } from '../lib/format.js';
+import { usd, khr } from '../lib/format.js';
 import ProductCard from '../components/ProductCard.jsx';
-import { ProductArt, Price, PageHead, Stars } from '../components/ui.jsx';
+import { ProductArt, Price, PageHead } from '../components/ui.jsx';
 
 export default function ProductDetail() {
   const { slug } = useParams();
   const navigate = useNavigate();
-  const { t, L, lang, rate, addToCart, notify, setCartOpen, settings } = useStore();
+  const { t, L, lang, rate, addToCart, notify, setCartOpen } = useStore();
 
   const [product, setProduct] = useState(null);
   const [related, setRelated] = useState([]);
@@ -47,7 +47,7 @@ export default function ProductDetail() {
     packageId: selected.id, packageLabel: selected.label, price: selected.price,
     qty, accountId: accountId.trim(), requiresId: product.requiresId,
     icon: product.icon, colors: product.colors,
-    productIcon: product.icon, productColors: product.colors,
+    productIcon: product.icon, productColors: product.colors, productBrand: product.brand,
   });
 
   const validate = () => {
@@ -108,8 +108,7 @@ export default function ProductDetail() {
               <div className="detail-info-cards">
                 <div className="detail-info-card"><Clock3 size={19} /><strong>{L(product.delivery)}</strong><small>{t('p.delivery')}</small></div>
                 <div className="detail-info-card"><ShieldCheck size={19} /><strong>{t('trust.2')}</strong><small>{t('p.verified')}</small></div>
-                <div className="detail-info-card"><Headphones size={19} /><strong>24/7</strong><small>{t('ft.support')}</small></div>
-              </div>
+                </div>
 
               <div className="detail-block" style={{ marginTop: 18 }}>
                 <h3><Info size={17} /> {t('p.description')}</h3>
@@ -139,11 +138,7 @@ export default function ProductDetail() {
             </div>
             <h1>{product.name}</h1>
             <div className="detail-meta">
-              <span className="row gap-6"><Stars value={product.rating} /> <strong>{Number(product.rating).toFixed(1)}</strong></span>
-              <span>·</span>
-              <span className="row gap-6"><Zap size={14} /> {compact(product.sold)} {t('shop.sold')}</span>
-              <span>·</span>
-              <span className="row gap-6"><CheckCircle2 size={14} className="text-green" /> {t('p.verified')}</span>
+              <span className="row gap-6"><CheckCircle2 size={14} className="text-green" /> {t('ad.providerPriceVerified')}</span>
             </div>
             <p className="detail-desc">{L(product.desc)}</p>
 
@@ -159,7 +154,7 @@ export default function ProductDetail() {
                     <span className="pk-label">{p.label}</span>
                     {p.oldPrice && <span className="pk-old">{usd(p.oldPrice)}</span>}
                     <span className="pk-price">{usd(p.price)}</span>
-                    <span className="pk-khr">{khr(p.price, rate)}</span>
+                    {rate && <span className="pk-khr">{khr(p.price, rate)}</span>}
                   </button>
                 ))}
               </div>
@@ -193,7 +188,7 @@ export default function ProductDetail() {
                 <button className="btn btn-primary" onClick={onBuy}><Zap size={17} fill="currentColor" /> {t('c.buyNow')}</button>
               </div>
               <p className="text-center tiny text-dim" style={{ marginTop: 14 }}><ShieldCheck size={12} style={{ verticalAlign: -2, marginRight: 5 }} />{t('p.secure')}</p>
-              <p className="text-center tiny text-dim" style={{ marginTop: 6 }}>{t('p.needHelp')} <a href={`https://t.me/${(settings.telegram || '@vctopup').replace('@', '')}`} target="_blank" rel="noreferrer" style={{ color: '#c4b5fd' }}>{settings.telegram}</a></p>
+              <p className="text-center tiny text-dim" style={{ marginTop: 6 }}>{t('p.needHelp')} <Link to="/contact" style={{ color: '#c4b5fd' }}>{t('nav.contact')}</Link></p>
             </div>
           </div>
         </div>

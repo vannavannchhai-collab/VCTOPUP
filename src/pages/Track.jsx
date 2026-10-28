@@ -17,7 +17,7 @@ const STEPS = [
 ];
 
 export default function Track() {
-  const { t, L, rate, settings } = useStore();
+  const { t, L, rate } = useStore();
   const [params] = useSearchParams();
   const [code, setCode] = useState(params.get('code') || '');
   const [phone, setPhone] = useState('');
@@ -150,7 +150,7 @@ export default function Track() {
 
             <div className="alert alert-info" style={{ marginTop: 20 }}>
               <Info size={16} />
-              <span>{t('suc.help')} <a href={`https://t.me/${(settings.telegram || '@vctopup').replace('@', '')}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'underline' }}>{settings.telegram}</a></span>
+              <span>{t('suc.help')} <Link to="/contact" style={{ textDecoration: 'underline' }}>{t('nav.contact')}</Link></span>
             </div>
             <div className="row center gap-12 wrap" style={{ marginTop: 22 }}>
               {order.payment.status !== 'paid' && order.status !== 'cancelled' && (

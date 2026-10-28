@@ -19,13 +19,14 @@ import {
   signToken, verifyToken, uid, orderCode, publicUser,
   readFresh, transact, ensureStore,
 } from './db.js';
-import { integrationStatus, assertLiveReady, LiveNotReadyError, isLive, partnerConfig } from './config.js';
+import { integrationStatus, assertLiveReady, LiveNotReadyError, isLive, partnerConfig, shop2topupConfig } from './config.js';
 import { isShop2TopupItemId } from './credentials.js';
 import { validateOrderRecipients } from './partner.js';
-import { testConnection as testProviderConnection, getCatalog as getProviderCatalog } from './shop2topup.js';
+import { authProviderConfig, verifyGoogleCredential, verifyTelegramLogin } from './authProviders.js';
+import { testConnection as testProviderConnection, getCatalog as getProviderCatalog, getItemPrice } from './shop2topup.js';
 import {
   attachPayment, publicPayment, verifyPayment, deliverOrder,
-  simulateSandboxPayment, refreshPaymentQR, adminConfirmPayment, handlePartnerCallback,
+  refreshPaymentQR, handlePartnerCallback,
 } from './payments.js';
 
 const app = express();
@@ -85,9 +86,11 @@ function normalizeOrderItems(db, rawItems) {
     const qty = Math.min(99, Math.max(1, parseInt(raw.qty, 10) || 1));
     return {
       productId: p.id, productSlug: p.slug, productName: p.name,
-      productIcon: p.icon, productColors: p.colors,
+      productIcon: p.icon, productColors: p.colors, productBrand: p.brand || null,
       packageId: pk.id, packageLabel: pk.label, price: pk.price,
       partnerSku: pk.partnerSku || '',
+      providerCost: Number(pk.providerCost) || null,
+      providerPriceCheckedAt: pk.providerPriceCheckedAt || null,
       qty, accountId: clean(raw.accountId).slice(0, 80),
       lineTotal: round(pk.price * qty),
     };
@@ -95,38 +98,64 @@ function normalizeOrderItems(db, rawItems) {
 }
 
 // ================================================================ PUBLIC API
+function customerCatalog() {
+  if (!isLive || !integrationStatus().ready || partnerConfig().provider !== 'shop2topup') return [];
+  const db = getDB();
+  const maxAgeMs = Number(process.env.SHOP2TOPUP_PRICE_MAX_AGE_HOURS || 24) * 60 * 60_000;
+  return db.products.map((product) => {
+    const packages = (product.packages || []).filter((pk) => {
+      const checkedAt = Date.parse(pk.providerPriceCheckedAt || '');
+      return isShop2TopupItemId(pk.partnerSku)
+        && Number.isFinite(Number(pk.providerCost)) && Number(pk.providerCost) > 0
+        && Number.isFinite(checkedAt) && Date.now() - checkedAt <= maxAgeMs;
+    });
+    return { ...product, packages, minPrice: packages.length ? Math.min(...packages.map((p) => p.price)) : null,
+      sold: 0, rating: null, tag: null, featured: false, popular: false };
+  }).filter((p) => p.packages.length > 0);
+}
+
 api.get('/health', (_req, res) => res.json({
   ok: true, service: 'VC TOPUP API', time: new Date().toISOString(),
   paymentMode: integrationStatus().mode,
   durableStore: integrationStatus().checks.durableStore,
 }));
 
-/** Public, secret-free integration report. The UI uses it to show a sandbox
- *  badge and to explain why live mode may be unavailable. */
+/** Public, secret-free integration report. The UI uses it to keep checkout
+ * locked until every required real integration is ready. */
 api.get('/config', (_req, res) => res.json({ ok: true, data: integrationStatus() }));
 
 api.get('/bootstrap', (_req, res) => {
   const db = getDB();
+  const products = customerCatalog();
+  const realOrders = (db.orders || []).filter((o) => o.payment?.status === 'paid' && o.status === 'completed');
+  const settingsSnapshot = { ...db.settings, stats: {
+    orders: realOrders.length,
+    customers: new Set(realOrders.map((o) => o.userId || o.customer?.email || o.customer?.phone).filter(Boolean)).size,
+    games: new Set(products.map((p) => p.category)).size,
+    uptime: null,
+  } };
   res.json({
     ok: true,
     payment: integrationStatus(),
-    settings: db.settings,
-    categories: db.categories,
+    settings: settingsSnapshot,
+    categories: db.categories.filter((c) => products.some((p) => p.category === c.id)),
     paymentMethods: db.paymentMethods,
-    reviews: db.reviews,
+    reviews: [],
     faqs: db.faqs,
-    featured: db.products.filter((p) => p.featured).map((p) => ({ ...p, minPrice: Math.min(...p.packages.map((x) => x.price)) })),
-    popular: [...db.products].sort((a, b) => b.sold - a.sold).slice(0, 8).map((p) => ({ ...p, minPrice: Math.min(...p.packages.map((x) => x.price)) })),
-    productCount: db.products.length,
+    featured: products,
+    popular: products,
+    productCount: products.length,
   });
 });
 
-api.get('/categories', (_req, res) => res.json({ ok: true, data: getDB().categories }));
+api.get('/categories', (_req, res) => {
+  const products = customerCatalog();
+  res.json({ ok: true, data: getDB().categories.filter((c) => products.some((p) => p.category === c.id)) });
+});
 
 api.get('/products', (req, res) => {
-  const db = getDB();
   const { category, q, sort = 'popular', limit } = req.query;
-  let list = [...db.products];
+  let list = customerCatalog();
   if (category && category !== 'all') list = list.filter((p) => p.category === category);
   if (q) {
     const needle = clean(q).toLowerCase();
@@ -148,12 +177,11 @@ api.get('/products', (req, res) => {
 });
 
 api.get('/products/:slug', (req, res) => {
-  const db = getDB();
-  const p = db.products.find((x) => x.slug === req.params.slug || x.id === req.params.slug);
-  if (!p) return fail(res, 404, 'Product not found');
-  const related = db.products.filter((x) => x.category === p.category && x.id !== p.id).slice(0, 4)
-    .map((x) => ({ ...x, minPrice: Math.min(...x.packages.map((y) => y.price)) }));
-  res.json({ ok: true, data: { ...p, minPrice: Math.min(...p.packages.map((x) => x.price)) }, related });
+  const list = customerCatalog();
+  const p = list.find((x) => x.slug === req.params.slug || x.id === req.params.slug);
+  if (!p) return fail(res, 404, 'This product is not yet available from the verified top-up provider.');
+  const related = list.filter((x) => x.category === p.category && x.id !== p.id).slice(0, 4);
+  res.json({ ok: true, data: p, related });
 });
 
 api.get('/payment-methods', (_req, res) => res.json({ ok: true, data: getDB().paymentMethods }));
@@ -171,6 +199,7 @@ api.post('/promo/validate', (req, res) => {
 
 api.post('/orders', asyncH(async (req, res) => {
   await ensureStore();
+  if (!isLive) return fail(res, 503, 'Real payments are not enabled. No simulated or test orders are accepted.');
   const db = await readFresh();
   const { customer = {}, payment = {}, promoCode = '', note = '' } = req.body;
   let items;
@@ -184,9 +213,9 @@ api.post('/orders', asyncH(async (req, res) => {
   for (const item of items) {
     if (item.accountId.length < 3) return fail(res, 400, 'Please enter your account ID / phone number');
   }
-  const method = clean(payment.method) || 'aba';
+  const method = clean(payment.method) || 'bakong';
   const methodConfig = db.paymentMethods.find((m) => m.id === method);
-  if (!methodConfig) return fail(res, 400, 'Invalid payment method');
+  if (!methodConfig || method !== 'bakong' || methodConfig.kind !== 'khqr') return fail(res, 400, 'Only verified Bakong KHQR checkout is enabled.');
 
   // HARD GATE: never accept a real-money order until verification, storage and
   // fulfillment are all configured. Fails closed rather than silently demo-ing.
@@ -221,18 +250,12 @@ api.post('/orders', asyncH(async (req, res) => {
     if (!recipientCheck.ok) return fail(res, 422, recipientCheck.message);
   }
   const now = new Date().toISOString();
-  const isWallet = method === 'wallet';
   let payer = req.user || null;
   if (!payer) {
     const h = req.headers.authorization;
     const payload = h?.startsWith('Bearer ') ? verifyToken(h.slice(7)) : null;
     payer = payload ? db.users.find((u) => u.id === payload.uid) : null;
   }
-  if (isWallet) {
-    if (!payer) return fail(res, 401, 'Please sign in to use your VC Wallet');
-    if ((payer.balance || 0) < total) return fail(res, 400, 'Insufficient VC Wallet balance');
-  }
-
   const code = orderCode();
   const order = {
     code,
@@ -243,8 +266,6 @@ api.post('/orders', asyncH(async (req, res) => {
     payment: { method, transactionId: clean(payment.transactionId) },
     status: 'pending',
     note: clean(note).slice(0, 500),
-    pointsEarned: Math.floor(total),
-    pointsAwarded: false,
     fulfillment: { status: 'not_started', attempts: 0 },
     createdAt: now,
     timeline: [{ status: 'pending', at: now, note: 'Order created' }],
@@ -253,24 +274,7 @@ api.post('/orders', asyncH(async (req, res) => {
   // A unique dynamic KHQR is generated SERVER-SIDE and bound to this order.
   // The browser never invents a payment string and never sets payment status.
   order.payment = attachPayment(order, methodConfig, db.settings);
-  const paidImmediately = order.payment.status === 'paid';
-  if (paidImmediately) {
-    order.status = 'paid';
-    order.timeline.push({ status: 'paid', at: now, note: 'Paid with VC Wallet' });
-  }
-
-  await transact((d) => {
-    d.orders.unshift(order);
-    if (appliedPromo) {
-      const p = d.promos.find((x) => x.code === appliedPromo);
-      if (p) p.uses += 1;
-    }
-    if (isWallet && payer) {
-      const u = d.users.find((x) => x.id === payer.id);
-      if (u) u.balance = round((u.balance || 0) - total);
-    }
-  });
-  // Points are awarded only after delivery completes (see payments.js).
+  await transact((d) => { d.orders.unshift(order); });
   res.status(201).json({ ok: true, data: order, payment: publicPayment(order) });
 }));
 
@@ -372,14 +376,6 @@ api.get('/payments/:code/status', asyncH(async (req, res) => {
   });
 }));
 
-/** SANDBOX ONLY: pretend the customer scanned the QR in their banking app. */
-api.post('/payments/:code/simulate', asyncH(async (req, res) => {
-  await ensureStore();
-  const r = await simulateSandboxPayment(req.params.code);
-  if (r.error) return fail(res, r.status || 400, r.error);
-  res.json({ ok: true, data: publicPayment(r.order) });
-}));
-
 /** Issue a fresh KHQR after the previous one expired. */
 api.post('/payments/:code/refresh', asyncH(async (req, res) => {
   await ensureStore();
@@ -439,29 +435,83 @@ api.post('/contact', (req, res) => {
 });
 
 // ==================================================================== AUTH
-api.post('/auth/register', (req, res) => {
-  const db = getDB();
+api.get('/auth/providers', (_req, res) => res.json({ ok: true, data: authProviderConfig() }));
+
+api.post('/auth/register', asyncH(async (req, res) => {
+  await ensureStore();
+  const db = await readFresh();
   const name = clean(req.body.name), email = clean(req.body.email).toLowerCase(), phone = clean(req.body.phone);
   const password = String(req.body.password || '');
   if (name.length < 2) return fail(res, 400, 'Please enter your name');
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(res, 400, 'Please enter a valid email');
-  if (password.length < 6) return fail(res, 400, 'Password must be at least 6 characters');
-  if (db.users.some((u) => u.email === email)) return fail(res, 409, 'An account with this email already exists');
+  if (password.length < 10) return fail(res, 400, 'Password must be at least 10 characters');
+  if (db.users.some((u) => u.email?.toLowerCase() === email)) return fail(res, 409, 'An account with this email already exists');
   const user = {
-    id: uid('usr'), name, email, phone, password: hashPassword(password),
-    role: 'user', balance: 2, points: 50, createdAt: new Date().toISOString(),
+    id: uid('usr'), name, email, phone, password: hashPassword(password), authProvider: 'password',
+    role: 'user', createdAt: new Date().toISOString(),
   };
-  mutate((d) => d.users.push(user));
-  res.status(201).json({ ok: true, token: signToken({ uid: user.id }), data: publicUser(user), message: 'Welcome to VC TOPUP! You received $2 welcome credit.' });
-});
+  await transact((d) => d.users.push(user));
+  res.status(201).json({ ok: true, token: signToken({ uid: user.id }), data: publicUser(user), message: 'Account created.' });
+}));
 
-api.post('/auth/login', (req, res) => {
-  const db = getDB();
+api.post('/auth/login', asyncH(async (req, res) => {
+  await ensureStore();
+  const db = await readFresh();
   const email = clean(req.body.email).toLowerCase();
-  const user = db.users.find((u) => u.email === email);
+  const user = db.users.find((u) => u.email?.toLowerCase() === email && u.password);
   if (!user || !verifyPassword(req.body.password, user.password)) return fail(res, 401, 'Incorrect email or password');
   res.json({ ok: true, token: signToken({ uid: user.id }), data: publicUser(user) });
-});
+}));
+
+async function createSocialSession(identity) {
+  const user = await transact((d) => {
+    d.users ||= [];
+    let current = d.users.find((u) => u.authProvider === identity.provider && u.providerId === identity.providerId);
+    if (!current && identity.email) {
+      current = d.users.find((u) => u.email?.toLowerCase() === identity.email.toLowerCase());
+      if (current && current.authProvider && current.authProvider !== 'password' && current.providerId !== identity.providerId) {
+        throw Object.assign(new Error('This email is already connected to another sign-in provider.'), { status: 409 });
+      }
+      if (current) {
+        current.authProvider = identity.provider;
+        current.providerId = identity.providerId;
+        current.emailVerified = true;
+      }
+    }
+    if (!current) {
+      current = {
+        id: uid('usr'), name: identity.name, email: identity.email || null,
+        phone: '', telegram: identity.username ? `@${identity.username}` : '',
+        authProvider: identity.provider, providerId: identity.providerId,
+        emailVerified: Boolean(identity.emailVerified), picture: identity.picture || '',
+        role: 'user', createdAt: new Date().toISOString(),
+      };
+      d.users.push(current);
+    } else {
+      current.name ||= identity.name;
+      current.picture ||= identity.picture || '';
+      if (identity.username) current.telegram = `@${identity.username}`;
+    }
+    return current;
+  });
+  return { ok: true, token: signToken({ uid: user.id }), data: publicUser(user), message: 'Signed in successfully.' };
+}
+
+api.post('/auth/google', asyncH(async (req, res) => {
+  await ensureStore();
+  try {
+    const identity = await verifyGoogleCredential(req.body?.credential);
+    res.json(await createSocialSession(identity));
+  } catch (err) { return fail(res, err.status || 401, err.message || 'Google sign-in failed'); }
+}));
+
+api.post('/auth/telegram', asyncH(async (req, res) => {
+  await ensureStore();
+  try {
+    const identity = verifyTelegramLogin(req.body);
+    res.json(await createSocialSession(identity));
+  } catch (err) { return fail(res, err.status || 401, err.message || 'Telegram sign-in failed'); }
+}));
 
 api.get('/auth/me', auth, (req, res) => res.json({ ok: true, data: publicUser(req.user) }));
 
@@ -490,28 +540,8 @@ api.get('/auth/orders', auth, (req, res) => {
   res.json({ ok: true, data });
 });
 
-api.post('/auth/wallet/topup', auth, (req, res) => {
-  const amount = Number(req.body.amount);
-  if (![5, 10, 20, 50, 100].includes(amount)) return fail(res, 400, 'Invalid amount');
-  const user = mutate((db) => {
-    const u = db.users.find((x) => x.id === req.user.id);
-    u.balance = round((u.balance || 0) + amount);
-    return publicUser(u);
-  });
-  res.json({ ok: true, data: user, message: `$${amount} added to your wallet (demo)` });
-});
-
-api.post('/auth/wallet/redeem', auth, (req, res) => {
-  const points = 100;
-  if ((req.user.points || 0) < points) return fail(res, 400, 'You need at least 100 VC Points');
-  const user = mutate((db) => {
-    const u = db.users.find((x) => x.id === req.user.id);
-    u.points -= points;
-    u.balance = round((u.balance || 0) + 1);
-    return publicUser(u);
-  });
-  res.json({ ok: true, data: user, message: '100 VC Points redeemed for $1.00' });
-});
+api.post('/auth/wallet/topup', auth, (_req, res) => fail(res, 410, 'The internal wallet is disabled. Pay through the verified Bakong KHQR for each order.'));
+api.post('/auth/wallet/redeem', auth, (_req, res) => fail(res, 410, 'Promotional wallet credits are not issued.'));
 
 // =================================================================== ADMIN
 api.use('/admin', auth, adminOnly);
@@ -567,53 +597,17 @@ api.get('/admin/orders', (req, res) => {
   res.json({ ok: true, data: list, total: list.length });
 });
 
-api.put('/admin/orders/:code', asyncH(async (req, res) => {
-  await ensureStore();
-  const db = await readFresh();
-  const order = db.orders.find((o) => o.code === req.params.code);
-  if (!order) return fail(res, 404, 'Order not found');
-  const status = clean(req.body.status);
-  const allowed = ['pending', 'paid', 'processing', 'completed', 'delivery_failed', 'cancelled'];
-  if (!allowed.includes(status)) return fail(res, 400, `Invalid status. Allowed: ${allowed.join(', ')}`);
-  // Never let a manual status edit fake a payment: `paid` requires evidence.
-  if (status === 'paid' && order.payment.status !== 'paid') {
-    return fail(res, 409, 'Payment is not verified. Use "Confirm payment" instead of faking a status.');
-  }
-  const updated = await transact((d) => {
-    const o = d.orders.find((x) => x.code === req.params.code);
-    o.status = status;
-    o.timeline.push({ status, at: new Date().toISOString(), note: clean(req.body.note) || `Status changed to ${status}` });
-    if (status === 'completed' && !o.pointsAwarded) {
-      o.pointsAwarded = true;
-      if (o.userId) {
-        const u = d.users.find((x) => x.id === o.userId);
-        if (u) u.points = (u.points || 0) + (o.pointsEarned || 0);
-      }
-    }
-    return o;
-  });
-  res.json({ ok: true, data: updated, message: 'Order updated' });
-}));
-
 /** Retry a failed partner delivery (idempotent thanks to Idempotency-Key). */
 api.post('/admin/orders/:code/retry', asyncH(async (req, res) => {
   await ensureStore();
+  const current = (await readFresh()).orders.find((o) => o.code === req.params.code);
+  if (!current) return fail(res, 404, 'Order not found');
+  if (current.payment?.status !== 'paid' || current.status !== 'delivery_failed') {
+    return fail(res, 409, 'Only a paid order with a failed provider delivery can be retried.');
+  }
   const r = await deliverOrder(req.params.code, { force: true });
   if (r.error) return fail(res, r.status || 400, r.error);
   res.json({ ok: true, data: r.order, result: r.result || null, message: 'Delivery retried' });
-}));
-
-/** Confirm a manual Wing / TrueMoney transfer, then deliver automatically. */
-api.post('/admin/orders/:code/confirm-payment', asyncH(async (req, res) => {
-  await ensureStore();
-  const r = await adminConfirmPayment(req.params.code, req.user.id, clean(req.body.note));
-  if (r.error) return fail(res, r.status || 400, r.error);
-  let order = r.order;
-  if (r.shouldDeliver) {
-    const d = await deliverOrder(order.code);
-    order = d.order || order;
-  }
-  res.json({ ok: true, data: order, message: 'Payment confirmed; delivery started' });
 }));
 
 /** Integration health — safe booleans only, never secret values. */
@@ -664,26 +658,69 @@ api.put('/admin/integrations/sku-map', asyncH(async (req, res) => {
   const map = req.body?.map;
   if (!map || typeof map !== 'object' || Array.isArray(map)) return fail(res, 400, 'A JSON object of package keys → item IDs is required');
   const provider = partnerConfig().provider;
-  for (const [key, raw] of Object.entries(map)) {
-    const value = clean(raw);
-    if (value && provider === 'shop2topup' && !isShop2TopupItemId(value)) {
-      return fail(res, 400, `${key}: Shop2Topup item IDs must be positive numbers`);
-    }
+  if (provider !== 'shop2topup') return fail(res, 400, 'Provider price sync currently supports Shop2Topup only');
+  const db = await readFresh();
+  const validKeys = new Set(db.products.flatMap((p) => (p.packages || []).map((pk) => `${p.slug}:${pk.id}`)));
+  const entries = Object.entries(map).map(([key, raw]) => [key, clean(raw)]);
+  for (const [key, value] of entries) {
+    if (!validKeys.has(key)) return fail(res, 400, `Unknown package mapping: ${key}`);
+    if (value && !isShop2TopupItemId(value)) return fail(res, 400, `${key}: Shop2Topup item IDs must be positive numbers`);
     if (key.length > 120 || value.length > 120) return fail(res, 400, 'Mapping keys or values are too long');
   }
+
+  const toRefresh = entries.filter(([key, value]) => {
+    if (!value) return false;
+    const [slug, pkgId] = key.split(':');
+    const pkg = db.products.find((p) => p.slug === slug)?.packages.find((x) => x.id === pkgId);
+    const checked = Date.parse(pkg?.providerPriceCheckedAt || '');
+    const maxAge = Number(process.env.SHOP2TOPUP_PRICE_MAX_AGE_HOURS || 24) * 60 * 60_000;
+    return pkg?.partnerSku !== value || !Number.isFinite(checked) || Date.now() - checked > maxAge;
+  });
+  if (toRefresh.length && !integrationStatus().checks.partnerCredentials) {
+    return fail(res, 422, 'Set a real SHOP2TOPUP_API_KEY before mapping items; package prices are synced from the real catalogue.');
+  }
+  if (toRefresh.length > 20) return fail(res, 413, 'Map at most 20 new or changed items per save so every price can be verified safely.');
+
+  const { retailMultiplier } = shop2topupConfig();
+  const prices = new Map();
+  for (const [key, itemId] of toRefresh) {
+    let quote;
+    try { quote = await getItemPrice(itemId); }
+    catch (err) { return fail(res, 422, `Could not verify provider price for ${key}: ${err.message}`); }
+    if (!Number.isFinite(quote.unitPrice) || quote.unitPrice <= 0 || quote.currency !== 'USD') {
+      return fail(res, 422, `${key}: provider returned an invalid price or unsupported currency (${quote.currency})`);
+    }
+    prices.set(key, { ...quote, itemId, retailPrice: round(quote.unitPrice * retailMultiplier) });
+  }
+
   const updated = await transact((d) => {
     let count = 0;
     for (const p of d.products) {
       for (const pk of p.packages || []) {
         const key = `${p.slug}:${pk.id}`;
         if (!Object.prototype.hasOwnProperty.call(map, key)) continue;
-        pk.partnerSku = clean(map[key]) || null;
+        const itemId = clean(map[key]);
+        if (!itemId) {
+          pk.partnerSku = null; pk.providerCost = null; pk.providerPriceCheckedAt = null;
+          pk.providerPriceCurrency = null; pk.priceSource = null;
+          continue;
+        }
+        const quote = prices.get(key);
+        if (quote) {
+          pk.partnerSku = itemId;
+          pk.providerCost = quote.unitPrice;
+          pk.providerPriceCurrency = quote.currency;
+          pk.providerPriceCheckedAt = quote.checkedAt;
+          pk.priceSource = 'shop2topup-live-catalog';
+          pk.price = quote.retailPrice;
+          pk.oldPrice = null;
+        }
         count += 1;
       }
     }
     return count;
   });
-  res.json({ ok: true, data: { updated, integration: integrationStatus() }, message: `${updated} package mappings saved` });
+  res.json({ ok: true, data: { updated, syncedPrices: prices.size, retailMultiplier, integration: integrationStatus() }, message: `${updated} mappings saved; ${prices.size} real provider prices synchronized` });
 }));
 
 function shop2CategoryId() {
@@ -708,7 +745,7 @@ api.post('/admin/products', (req, res) => {
     currency: clean(b.currency) || 'units',
     desc: b.desc || { kh: '', en: '' },
     instructions: b.instructions || { kh: [], en: [] },
-    delivery: b.delivery || { kh: '១–៥ នាទី', en: '1–5 min' },
+    delivery: b.delivery || { kh: 'ពេលវេលាដឹកជញ្ជូនអាស្រ័យលើអ្នកផ្គត់ផ្គង់', en: 'Delivery timing depends on the provider' },
     packages: Array.isArray(b.packages) && b.packages.length ? b.packages : [
       { id: 'starter', label: 'Starter', price: 1, oldPrice: null, bonus: null, popular: false },
     ],

@@ -96,7 +96,11 @@ async function main() {
     SHOP2TOPUP_CATEGORY_ID: await askValid('Provider category ID for requirements (optional, press Enter): ', optional, { defaultValue: e.SHOP2TOPUP_CATEGORY_ID || '' }),
     SHOP2TOPUP_VALIDATE_PLAYER: 'true',
     SHOP2TOPUP_MAX_COST_RATIO: '1',
+    SHOP2TOPUP_RETAIL_MULTIPLIER: e.SHOP2TOPUP_RETAIL_MULTIPLIER || '1.10',
     SHOP2TOPUP_TIMEOUT_MS: '15000',
+    GOOGLE_CLIENT_ID: await askValid('Google Web OAuth Client ID (.apps.googleusercontent.com): ', (v) => /^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/i.test(v), { defaultValue: e.GOOGLE_CLIENT_ID || '' }),
+    TELEGRAM_BOT_USERNAME: (await askValid('Telegram bot username (without @): ', (v) => /^[A-Za-z0-9_]{5,32}$/.test(v), { defaultValue: e.TELEGRAM_BOT_USERNAME || '' })).replace(/^@/, ''),
+    TELEGRAM_BOT_TOKEN: await askValid('Telegram bot token from @BotFather: ', (v) => /^\d+:[A-Za-z0-9_-]{30,}$/.test(v), { hidden: true, defaultValue: e.TELEGRAM_BOT_TOKEN || '' }),
   };
 
   const lines = [
@@ -130,7 +134,7 @@ async function main() {
   console.log('   3. Run `npm run check:live -- --probe` to test the real account and key.');
   console.log('   4. Sign in as admin → Real integrations → load the catalogue → map every package to a real item ID.');
   console.log('   5. Confirm Bakong production allows your server IP; otherwise use an NBC-approved relay.');
-  console.log('   6. Test one small real order before opening to customers. Keep PAYMENT_MODE=sandbox until then.\n');
+  console.log('   6. Keep customer checkout closed until setup is READY, then verify one small real order end to end before opening sales.\n');
   rl?.close();
 }
 

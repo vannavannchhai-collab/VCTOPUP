@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "description": "VC TOPUP — ហាងបញ្ចូលលុយហ្គេម និងទូរស័ព្ទ / Full-stack game & mobile topup store",
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c cyan,magenta \"npm:dev:api\" \"npm:dev:web\"",
@@ -15,6 +17,7 @@
     "check": "npm run build",
     "test": "node --test tests/*.test.mjs",
     "setup:live": "node scripts/setup-live.mjs",
+    "admin:create": "node scripts/create-admin.mjs",
     "check:live": "node scripts/check-live.mjs",
     "partner:catalog": "node scripts/partner-catalog.mjs"
   },
@@ -31,7 +34,8 @@
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^7.18.5",
+    "simple-icons": "^16.36.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
