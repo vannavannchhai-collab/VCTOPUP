@@ -13,7 +13,7 @@ import { ProductArt, Price, PageHead } from '../components/ui.jsx';
 export default function ProductDetail() {
   const { slug } = useParams();
   const navigate = useNavigate();
-  const { t, L, lang, rate, addToCart, notify, setCartOpen } = useStore();
+  const { t, L, lang, rate, addToCart, notify, setCartOpen, boot } = useStore();
 
   const [product, setProduct] = useState(null);
   const [related, setRelated] = useState([]);
@@ -107,7 +107,7 @@ export default function ProductDetail() {
               <ProductArt product={product} className="detail-hero-art" />
               <div className="detail-info-cards">
                 <div className="detail-info-card"><Clock3 size={19} /><strong>{L(product.delivery)}</strong><small>{t('p.delivery')}</small></div>
-                <div className="detail-info-card"><ShieldCheck size={19} /><strong>{t('trust.2')}</strong><small>{t('p.verified')}</small></div>
+                <div className="detail-info-card"><ShieldCheck size={19} /><strong>{boot.previewMode ? t('live.previewBadge') : t('trust.2')}</strong><small>{boot.previewMode ? t('live.previewUnavailable') : t('p.verified')}</small></div>
                 </div>
 
               <div className="detail-block" style={{ marginTop: 18 }}>
@@ -133,12 +133,13 @@ export default function ProductDetail() {
           {/* ----------------------------------------------------------- right */}
           <div className="detail-main">
             <div className="row gap-8 wrap" style={{ marginBottom: 10 }}>
-              {product.tag && <span className={`badge ${product.tag === 'HOT' ? 'badge-hot' : product.tag === 'NEW' ? 'badge-new' : 'badge-popular'}`}>{product.tag}</span>}
+              {boot.previewMode && <span className="badge preview-product-badge">{t('live.previewBadge')}</span>}
+              {!boot.previewMode && product.tag && <span className={`badge ${product.tag === 'HOT' ? 'badge-hot' : product.tag === 'NEW' ? 'badge-new' : 'badge-popular'}`}>{product.tag}</span>}
               <span className="badge badge-gray">{product.currency}</span>
             </div>
             <h1>{product.name}</h1>
             <div className="detail-meta">
-              <span className="row gap-6"><CheckCircle2 size={14} className="text-green" /> {t('ad.providerPriceVerified')}</span>
+              <span className="row gap-6">{boot.previewMode ? <Info size={14} /> : <CheckCircle2 size={14} className="text-green" />} {boot.previewMode ? t('live.previewPrice') : t('ad.providerPriceVerified')}</span>
             </div>
             <p className="detail-desc">{L(product.desc)}</p>
 
@@ -152,6 +153,7 @@ export default function ProductDetail() {
                     {p.popular && <span className="pk-flag">{t('c.bestValue')}</span>}
                     {packageId === p.id && <span className="pk-check"><CheckCircle2 size={13} /></span>}
                     <span className="pk-label">{p.label}</span>
+                    {boot.previewMode && <span className="pk-preview-label">{t('live.previewBadge')}</span>}
                     {p.oldPrice && <span className="pk-old">{usd(p.oldPrice)}</span>}
                     <span className="pk-price">{usd(p.price)}</span>
                     {rate && <span className="pk-khr">{khr(p.price, rate)}</span>}
@@ -160,7 +162,7 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            <div className="detail-block">
+            {boot.previewMode ? <div className="alert alert-info" style={{ marginTop: 18 }}><Info size={16} /><span>{t('live.previewUnavailable')}</span></div> : <div className="detail-block">
               <h3><span className="step">2</span> {t('p.account')}</h3>
               <div className="form-group" style={{ marginBottom: 16 }}>
                 <label className="field-label">{L(product.idLabel)}</label>
@@ -189,7 +191,7 @@ export default function ProductDetail() {
               </div>
               <p className="text-center tiny text-dim" style={{ marginTop: 14 }}><ShieldCheck size={12} style={{ verticalAlign: -2, marginRight: 5 }} />{t('p.secure')}</p>
               <p className="text-center tiny text-dim" style={{ marginTop: 6 }}>{t('p.needHelp')} <Link to="/contact" style={{ color: '#c4b5fd' }}>{t('nav.contact')}</Link></p>
-            </div>
+            </div>}
           </div>
         </div>
 

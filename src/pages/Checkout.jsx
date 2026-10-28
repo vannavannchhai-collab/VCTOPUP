@@ -63,6 +63,16 @@ export default function Checkout() {
     } finally { setSubmitting(false); }
   };
 
+  if (boot.previewMode) return (
+    <>
+      <PageHead title={t('co.title')} crumbs={[]} />
+      <div className="container" style={{ padding: '60px 0 100px' }}>
+        <div className="alert alert-info"><LockKeyhole size={17} /><span>{t('live.previewUnavailable')}</span></div>
+        <Link to="/shop" className="btn btn-outline btn-sm" style={{ marginTop: 18 }}>{t('nav.shop')}</Link>
+      </div>
+    </>
+  );
+
   if (cart.length === 0) return (
     <>
       <PageHead title={t('co.title')} crumbs={[]} />

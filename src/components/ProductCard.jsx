@@ -12,7 +12,7 @@ export default function ProductCard({ product, delay = 0 }) {
   return (
     <Link to={`/product/${product.slug}`} className="product-card reveal" style={{ transitionDelay: `${delay}ms` }}>
       <div className="art-wrap">
-        {tag && <span className={`badge ${tagClass} card-tag`}>
+        {boot.previewMode ? <span className="badge preview-product-badge">{t('live.previewBadge')}</span> : tag && <span className={`badge ${tagClass} card-tag`}>
           {tag === 'HOT' ? <Zap size={10} fill="currentColor" /> : null}{tag}
         </span>}
         <ProductArt product={product} />
@@ -23,7 +23,7 @@ export default function ProductCard({ product, delay = 0 }) {
         <p className="card-desc">{L(product.desc)}</p>
         <div className="card-foot">
           <div>
-            <div className="from">{t('shop.starting')}</div>
+            <div className="from">{boot.previewMode ? t('live.previewPrice') : t('shop.starting')}</div>
             <Price value={product.minPrice ?? (product.packages?.[0]?.price || 0)} size="sm" />
           </div>
           <span className="card-go"><ArrowUpRight size={17} /></span>
