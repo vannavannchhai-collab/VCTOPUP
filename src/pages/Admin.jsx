@@ -82,7 +82,7 @@ export default function Admin() {
         setSettingsForm({
           announcementKh: s.announcement?.kh || '', announcementEn: s.announcement?.en || '',
           phone: s.phone || '', telegram: s.telegram || '', email: s.email || '',
-          exchangeRate: s.exchangeRate || 4100,
+          exchangeRate: s.exchangeRate || '',
         });
       }
     } catch (err) { notify(err.message, 'error'); }
@@ -97,27 +97,10 @@ export default function Admin() {
     return () => clearTimeout(timer);
   }, [orderSearch, statusFilter, tab, user?.role, load]);
 
-  const changeStatus = async (code, status) => {
-    try {
-      await api.put(`/admin/orders/${code}`, { status });
-      notify(t('ad.saved'), 'success');
-      load('orders');
-    } catch (err) { notify(err.message, 'error'); }
-  };
-
   const retryDelivery = async (code) => {
     try {
       const r = await api.post(`/admin/orders/${code}/retry`, {});
       notify(r.data?.status === 'completed' ? t('pay.done') : t('ad.saved'), 'success');
-      load('orders');
-    } catch (err) { notify(err.message, 'error'); }
-  };
-
-  const confirmPayment = async (code) => {
-    if (!window.confirm(t('ad.confirmPayment') + '?')) return;
-    try {
-      await api.post(`/admin/orders/${code}/confirm-payment`, { note: 'Manually confirmed in admin' });
-      notify(t('ad.saved'), 'success');
       load('orders');
     } catch (err) { notify(err.message, 'error'); }
   };
@@ -191,7 +174,7 @@ export default function Admin() {
       requiresId: f.requiresId, idPlaceholder: f.idPlaceholder,
       idLabel: { kh: 'លេខសម្គាល់អ្នកលេង (Player ID)', en: 'Player ID' },
       desc: { kh: f.descKh, en: f.descEn },
-      instructions: { kh: ['ជ្រើសរើសកញ្ចប់', 'បញ្ចូលលេខគណនី', 'បង់ប្រាក់', 'ទទួលឥណទានភ្លាមៗ'], en: ['Choose a package', 'Enter your account ID', 'Pay', 'Receive credits instantly'] },
+      instructions: { kh: ['ជ្រើសរើសកញ្ចប់ដែលមានស្តុក', 'បញ្ចូលលេខគណនីត្រឹមត្រូវ', 'បង់ប្រាក់តាម Bakong KHQR', 'តាមដានស្ថានភាពតាមអ្នកផ្គត់ផ្គង់'], en: ['Choose an available package', 'Enter your correct account ID', 'Pay using Bakong KHQR', 'Track provider-reported delivery status'] },
       // Editing a product must not wipe the real provider item IDs mapped in
       // the Integrations tab; preserve each package's existing partnerSku.
       packages: [
@@ -413,27 +396,12 @@ export default function Admin() {
             <td className="small text-dim nowrap">{o.payment.method.toUpperCase()}</td>
             <td className="small text-dim nowrap">{dateShort(o.createdAt, lang)}</td>
             <td className="text-right fw-700">{usd(o.total)}</td>
-            <td>
-              <select className="select" style={{ padding: '6px 28px 6px 9px', fontSize: '.74rem', minWidth: 120, backgroundPosition: 'right 7px center' }}
-                value={o.status} onChange={(e) => changeStatus(o.code, e.target.value)}>
-                <option value="pending">{t('st.pending')}</option>
-                <option value="paid">{t('st.paid')}</option>
-                <option value="processing">{t('st.processing')}</option>
-                <option value="delivery_failed">{t('st.delivery_failed')}</option>
-                <option value="completed">{t('st.completed')}</option>
-                <option value="cancelled">{t('st.cancelled')}</option>
-              </select>
-            </td>
+            <td><StatusBadge status={o.status} /></td>
             <td>
               <div className="row gap-6 nowrap">
                 {o.status === 'delivery_failed' && (
                   <button className="btn btn-primary btn-xs" onClick={() => retryDelivery(o.code)} title={t('ad.retry')}>
                     <RefreshCw size={11} /> {t('ad.retry')}
-                  </button>
-                )}
-                {o.payment?.status !== 'paid' && o.status !== 'cancelled' && o.payment?.verification === 'manual' && (
-                  <button className="btn btn-outline btn-xs" onClick={() => confirmPayment(o.code)} title={t('ad.confirmPayment')}>
-                    <CheckCircle2 size={11} /> {t('ad.confirmPayment')}
                   </button>
                 )}
                 <Link to={`/pay/${o.code}`} className="btn btn-ghost btn-xs" title="KHQR"><Eye size={11} /></Link>
@@ -621,14 +589,13 @@ export default function Admin() {
     <div className="panel">
       <div className="panel-head"><h2>{t('ad.users')}</h2><span className="badge badge-gray">{users.length}</span></div>
       <div className="order-table-wrap"><table className="data-table">
-        <thead><tr><th>{t('ad.customer')}</th><th>Email / Phone</th><th>{t('ad.orders')}</th><th>{t('ac.spent')}</th><th>{t('ac.balance')}</th><th>{t('c.status')}</th></tr></thead>
+        <thead><tr><th>{t('ad.customer')}</th><th>Email / Phone</th><th>{t('ad.orders')}</th><th>{t('ac.spent')}</th><th>{t('c.status')}</th></tr></thead>
         <tbody>{users.map((u) => (
           <tr key={u.id}>
             <td><strong style={{ fontSize: '.82rem' }}>{u.name}</strong><div className="tiny text-dim">{dateShort(u.createdAt, lang)}</div></td>
             <td className="small">{u.email}<div className="tiny text-dim">{u.phone || '—'}</div></td>
             <td className="small">{u.orderCount}</td>
             <td className="small fw-700">{usd(u.spent)}</td>
-            <td className="small">{usd(u.balance)}</td>
             <td><span className={`badge ${u.role === 'admin' ? 'badge-violet' : 'badge-green'}`}>{u.role}</span></td>
           </tr>
         ))}</tbody>

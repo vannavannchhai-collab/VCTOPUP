@@ -166,11 +166,6 @@
 .auth-tabs button.on { background: var(--grad-btn); color: #fff; box-shadow: 0 6px 18px rgba(124,92,255,.3); }
 .auth-box .form-grid { gap: 14px; }
 .auth-box .form-group { margin-bottom: 15px; }
-.demo-box { margin-top: 24px; padding: 16px; border-radius: 13px; border: 1px dashed rgba(139,92,246,.35); background: rgba(139,92,246,.05); }
-.demo-box .db-title { font-size: .75rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: #c4b5fd; margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
-.demo-account { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: .75rem; }
-.demo-account .da-info strong { display: block; font-size: .77rem; }
-.demo-account .da-info small { color: var(--muted-2); font-family: monospace; font-size: .72rem; }
 
 /* --------------------------------------------------------------- account */
 .account-wrap { padding: 40px 0 80px; }
@@ -341,7 +336,7 @@
    REAL PAYMENT FLOW — KHQR + Bakong verification + partner delivery
    ========================================================================== */
 .payment-page { padding-bottom: 90px; }
-.sandbox-ribbon { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.live-payment-ribbon { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .pay-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 20px; align-items: start; }
 .pay-qr-card .panel-body { display: flex; flex-direction: column; align-items: center; }
 .pay-qr-box { width: 260px; height: 260px; margin: 4px auto 14px; box-shadow: 0 0 0 6px rgba(255,255,255,.06), 0 20px 60px rgba(0,0,0,.35); }
@@ -353,8 +348,6 @@
 .pay-kv > span:first-child { color: var(--muted); }
 .pay-kv > span:last-child, .pay-kv strong { text-align: right; word-break: break-all; }
 .pay-kv strong.gradient-text { font-size: 1rem; }
-.pay-manual { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 30px 10px; color: #a78bfa; }
-.pay-manual .success-code { color: var(--text); }
 .pay-state { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 44px 14px; color: #c4b5fd; width: 100%; }
 .pay-state.done { color: #6ee7b7; }
 .pay-state.failed { color: #fda4af; }
@@ -368,7 +361,6 @@
 .pay-step.active .ps-num { background: var(--grad-btn); color: #fff; }
 .pay-step.done { border-color: rgba(52,211,153,.35); color: #6ee7b7; }
 .pay-step.done .ps-num { background: rgba(52,211,153,.18); color: #6ee7b7; }
-.pay-simulate { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--line); text-align: center; }
 .pay-preview { display: flex; align-items: center; gap: 16px; padding: 18px; border-radius: 14px; border: 1px dashed rgba(139,92,246,.4); background: rgba(139,92,246,.06); }
 .pay-preview .pp-icon { width: 58px; height: 58px; border-radius: 14px; display: grid; place-items: center; flex: none; background: rgba(139,92,246,.16); color: #c4b5fd; }
 .pay-preview strong { font-size: .84rem; line-height: 1.6; display: block; }
@@ -407,4 +399,49 @@
 @media (max-width: 700px) {
   .real-integration-panel .form-grid { grid-template-columns: 1fr; }
   .real-integration-panel .order-table-wrap { max-height: 480px; }
+}
+
+.detail-hero-art.official-brand-art { background: #fff; }
+.detail-hero-art.official-brand-art .brand-logo { width: min(42%, 150px); }
+
+/* Google / Telegram sign-in: brand-authenticated widgets, never custom fake marks. */
+.social-auth { display: grid; gap: 12px; margin-top: 18px; }
+.social-auth-divider { display: flex; align-items: center; gap: 12px; color: var(--muted-2); font-size: .72rem; }
+.social-auth-divider::before, .social-auth-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
+.social-auth-button { min-height: 42px; display: flex; justify-content: center; align-items: center; position: relative; }
+.social-auth-button iframe { max-width: 100%; }
+.social-loading { position: absolute; right: 12px; color: var(--muted); }
+.social-auth-unconfigured { min-height: 44px; padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .72rem; }
+.social-auth-unconfigured .brand-logo { width: 26px; height: 26px; padding: 5px; box-shadow: none; }
+.social-auth-note { display: flex; align-items: flex-start; gap: 7px; color: var(--muted-2); font-size: .68rem; line-height: 1.5; }
+.social-signin-progress { display: flex; align-items: center; gap: 7px; justify-content: center; }
+.auth-brand-mark { margin: 8px auto 26px; display: flex; flex-direction: column; align-items: center; gap: 10px; color: #c4b5fd; }
+.auth-brand-mark strong { font-weight: 900; letter-spacing: .16em; font-size: .8rem; }
+
+/* Real catalog status and official brand-only artwork. */
+.official-logo-hero { display: grid; place-items: center; min-height: 340px; }
+.live-setup-card { width: min(440px, 100%); padding: 34px; display: grid; justify-items: start; gap: 14px; border: 1px solid rgba(139,92,246,.28); border-radius: 22px; background: linear-gradient(145deg, rgba(26,32,56,.96), rgba(15,19,34,.96)); color: #c4b5fd; box-shadow: 0 25px 80px rgba(0,0,0,.25); }
+.live-setup-card strong { color: var(--text); font-size: 1.15rem; }
+.live-setup-card p { color: var(--muted); font-size: .85rem; line-height: 1.7; }
+.live-setup-card span { color: var(--muted-2); font-size: .72rem; }
+.hero-brand-grid { width: min(520px,100%); display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+.hero-brand-card { padding: 10px; border-radius: 16px; background: rgba(255,255,255,.96); display: grid; justify-items: center; gap: 8px; }
+.hero-brand-card .product-art { width: 100%; height: 80px; }
+.hero-brand-card .brand-logo { width: 54px; height: 54px; padding: 9px; box-shadow: none; }
+.hero-brand-card > span:last-child { color: #111827; text-align: center; font-size: .68rem; font-weight: 700; }
+.live-catalog-notice { max-width: 520px; margin-top: 18px; }
+.live-store-status-inner { display: flex; align-items: center; gap: 18px; color: #c4b5fd; }
+.live-store-status-inner > div { flex: 1; }
+.live-store-status-inner h2 { color: var(--text); font-size: 1.1rem; margin-bottom: 5px; }
+.live-store-status-inner p { font-size: .82rem; }
+.live-empty-state { grid-column: 1 / -1; padding: 34px; color: #c4b5fd; border: 1px dashed var(--line); border-radius: 16px; }
+.official-about-mark { display: grid; place-items: center; min-height: 250px; background: linear-gradient(135deg, rgba(139,92,246,.16), rgba(34,211,238,.08)); border: 1px solid var(--line); }
+.about-brand-wordmark { display: grid; justify-items: center; gap: 12px; color: #c4b5fd; }
+.about-brand-wordmark strong { font-weight: 900; font-size: 1.4rem; letter-spacing: .18em; }
+.about-brand-wordmark span { color: var(--muted); font-size: .8rem; }
+.about-verified-note { display: flex; align-items: center; gap: 10px; color: #6ee7b7; font-size: .82rem; }
+.real-account-stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+@media (max-width: 640px) {
+  .hero-brand-grid { grid-template-columns: repeat(2,1fr); }
+  .live-store-status-inner { align-items: flex-start; flex-wrap: wrap; }
 }

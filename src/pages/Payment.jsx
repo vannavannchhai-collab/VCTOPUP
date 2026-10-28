@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import {
   ShieldCheck, QrCode, Clock3, Check, CheckCircle2, RefreshCw, Loader2,
-  AlertTriangle, ArrowRight, Copy, Wallet, Info, Zap,
+  AlertTriangle, ArrowRight, Copy, Zap,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { api } from '../lib/api.js';
@@ -31,7 +31,7 @@ function useCountdown(expiresAt) {
 export default function Payment() {
   const { code } = useParams();
   const navigate = useNavigate();
-  const { t, rate, notify, lang } = useStore();
+  const { t, rate, notify } = useStore();
 
   const [info, setInfo] = useState(null);
   const [status, setStatus] = useState(null);
@@ -84,16 +84,6 @@ export default function Payment() {
     return () => { cancelled = true; };
   }, [info?.payment?.qr]);
 
-  const simulate = async () => {
-    setBusy(true);
-    try {
-      await api.post(`/payments/${encodeURIComponent(code)}/simulate`, {});
-      notify(lang === 'kh' ? 'បានក្លែងធ្វើការទូទាត់' : 'Bank payment simulated', 'info');
-      await poll();
-    } catch (err) { setError(err.message); }
-    finally { setBusy(false); }
-  };
-
   const refreshQr = async () => {
     setBusy(true);
     try {
@@ -114,8 +104,6 @@ export default function Payment() {
   );
 
   const p = info.payment;
-  const isSandbox = p.sandbox || p.mode === 'sandbox';
-  const isManual = p.verification === 'manual';
   const isPaid = ['paid', 'processing', 'completed', 'delivery_failed'].includes(currentStatus) || status?.paymentStatus === 'paid';
   const isDone = currentStatus === 'completed';
   const isFailed = currentStatus === 'delivery_failed';
@@ -128,16 +116,9 @@ export default function Payment() {
       <PageHead title={t('pay.title')} crumbs={[{ label: t('co.title'), to: '/checkout' }]} subtitle={t('pay.subtitle')} />
 
       <div className="container payment-page">
-        {isSandbox && (
-          <div className="alert alert-warn sandbox-ribbon">
-            <Info size={16} /><strong>{t('pay.sandbox')}</strong>
-          </div>
-        )}
-        {!isSandbox && (
-          <div className="alert alert-success sandbox-ribbon">
-            <ShieldCheck size={16} /><strong>{t('pay.live')}</strong>
-          </div>
-        )}
+        <div className="alert alert-success live-payment-ribbon">
+          <ShieldCheck size={16} /><strong>{t('pay.live')}</strong>
+        </div>
 
         {error && <div className="alert alert-error" style={{ marginBottom: 16 }}><AlertTriangle size={15} /> {error}</div>}
 
@@ -164,7 +145,7 @@ export default function Payment() {
                   ) : (
                     <div className="pay-countdown"><Clock3 size={15} /> {t('pay.expires')} <strong>{countdown?.label || '--:--'}</strong></div>
                   )}
-                  <div className="pay-kv"><span>{t('pay.amount')}</span><strong className="gradient-text">{usd(p.amount)} · {khr(p.amount, rate)}</strong></div>
+                  <div className="pay-kv"><span>{t('pay.amount')}</span><strong className="gradient-text">{usd(p.amount)}{rate ? ` · ${khr(p.amount, rate)}` : ''}</strong></div>
                   <div className="pay-kv"><span>{t('pay.merchant')}</span><span>{p.merchantName}</span></div>
                   <div className="pay-kv"><span>{t('pay.account')}</span><span>{p.accountId}</span></div>
                   <div className="pay-kv"><span>{t('pay.bill')}</span><span>{info.code}</span></div>
@@ -173,14 +154,6 @@ export default function Payment() {
                     <button className="btn btn-ghost btn-sm" onClick={refreshQr} disabled={busy}><RefreshCw size={14} /> {t('pay.refresh')}</button>
                   </div>
                 </>
-              ) : isManual && !isPaid ? (
-                <div className="pay-manual">
-                  <Wallet size={30} />
-                  <h3>{p.accountName}</h3>
-                  <div className="success-code">{p.accountNumber}</div>
-                  <CopyButton text={p.accountNumber || ''} label={t('c.copy')} className="btn btn-outline btn-sm" />
-                  <div className="alert alert-warn" style={{ marginTop: 16 }}><Info size={14} /> {t('pay.manual')}</div>
-                </div>
               ) : (
                 <div className={`pay-state ${isDone ? 'done' : isFailed ? 'failed' : ''}`}>
                   {isDone ? <CheckCircle2 size={52} /> : isFailed ? <AlertTriangle size={52} /> : <Loader2 size={46} className="spinner" />}
@@ -191,7 +164,7 @@ export default function Payment() {
                 </div>
               )}
 
-              {!isSandbox && <div className="alert alert-info" style={{ marginTop: 16 }}><ShieldCheck size={14} /> {t('pay.secureNote')}</div>}
+              <div className="alert alert-info" style={{ marginTop: 16 }}><ShieldCheck size={14} /> {t('pay.secureNote')}</div>
               {!isDone && <p className="text-center tiny text-dim" style={{ marginTop: 12 }}>{t('pay.auto')}</p>}
             </div>
           </div>
@@ -215,14 +188,7 @@ export default function Payment() {
                   ))}
                 </div>
 
-                {isSandbox && !isPaid && (
-                  <div className="pay-simulate">
-                    <button className="btn btn-cyan btn-block" onClick={simulate} disabled={busy}>
-                      {busy ? <Loader2 size={16} className="spinner" /> : <Zap size={16} />} {t('pay.simulate')}
-                    </button>
-                    <p className="tiny text-dim" style={{ marginTop: 8 }}>{t('pay.simulateHint')}</p>
-                  </div>
-                )}
+
 
                 {hasDiscrepancy && (
                   <div className="alert alert-error" style={{ marginTop: 14 }}>

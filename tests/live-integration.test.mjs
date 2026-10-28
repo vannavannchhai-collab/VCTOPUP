@@ -27,6 +27,9 @@ process.env.SHOP2TOPUP_API_KEY = 'key_abc123456.secret_xyz987654321';
 process.env.SHOP2TOPUP_WEBHOOK_SECRET = 'webhook_hmac_secret_0123456789';
 process.env.SHOP2TOPUP_CATEGORY_ID = '12';
 process.env.SHOP2TOPUP_VALIDATE_PLAYER = 'true';
+process.env.GOOGLE_CLIENT_ID = '123456789012-testclient.apps.googleusercontent.com';
+process.env.TELEGRAM_BOT_USERNAME = 'vctopup_test_bot';
+process.env.TELEGRAM_BOT_TOKEN = `123456:${'A'.repeat(40)}`;
 process.env.SHOP2TOPUP_ITEM_MAP = JSON.stringify({ 'mobile-legends:86-diamonds': '1001' });
 process.env.DATABASE_URL = ''; // db.js uses the local JSON store in tests
 
@@ -53,6 +56,13 @@ globalThis.fetch = async (url, init = {}) => {
   const p = u.pathname;
   const method = init.method || 'GET';
   requests.push({ path: p, method, body: init.body ? JSON.parse(init.body) : null });
+  if (u.hostname === 'oauth2.googleapis.com' && p === '/tokeninfo') {
+    return jsonResponse({
+      iss: 'https://accounts.google.com', aud: process.env.GOOGLE_CLIENT_ID,
+      exp: String(Math.floor(Date.now() / 1000) + 3600), sub: 'google-user-98765',
+      email: 'verified.user@gmail.com', email_verified: 'true', name: 'Verified User', picture: 'https://lh3.googleusercontent.com/picture',
+    });
+  }
 
   if (!String(init.headers?.Authorization || '').includes(API_KEY)) {
     return jsonResponse({ error: { code: 'PROVIDER_AUTH' }, success: false }, 401);
@@ -96,20 +106,26 @@ const credentials = await import('../server/credentials.js');
 const config = await import('../server/config.js');
 const s2t = await import('../server/shop2topup.js');
 const partner = await import('../server/partner.js');
+const authProviders = await import('../server/authProviders.js');
 const payments = await import('../server/payments.js');
 const db = await import('../server/db.js');
 
 await db.ensureStore();
+const mappedTestPackage = db.getDB().products.find((p) => p.slug === 'mobile-legends').packages[0];
+mappedTestPackage.partnerSku = '1001';
+mappedTestPackage.providerCost = 0.95;
+mappedTestPackage.providerPriceCheckedAt = new Date().toISOString();
 
 const item = {
   productSlug: 'mobile-legends', packageId: '86-diamonds', productName: 'Mobile Legends',
-  packageLabel: '86 Diamonds', price: 1.5, qty: 1, accountId: '12345678 (1234)', partnerSku: null,
+  packageLabel: '86 Diamonds', price: 1.5, qty: 1, accountId: '12345678 (1234)', partnerSku: '1001',
+  providerCost: 0.95, providerPriceCheckedAt: new Date().toISOString(),
 };
 const order = {
   code: 'VC-TEST-0001', items: [item], total: 1.5,
   payment: { currency: 'USD', status: 'paid' },
   customer: { name: 'Test', phone: '012345678', email: 'test@vctopup.shop' },
-  fulfillment: {}, timeline: [], pointsEarned: 1, pointsAwarded: false,
+  fulfillment: {}, timeline: [],
 };
 
 test('placeholder credentials are rejected by the live gate', () => {
@@ -135,11 +151,105 @@ test('integrationStatus is ready with real-looking env values and never leaks se
     assert.equal(serialized.includes(secret), false);
   }
   assert.doesNotThrow(() => config.assertLiveReady([item]));
-  assert.throws(() => config.assertLiveReady([{ ...item, productSlug: 'missing-game', packageId: 'unknown' }]), (err) => {
+  assert.throws(() => config.assertLiveReady([{ ...item, productSlug: 'missing-game', packageId: 'unknown', partnerSku: '' }]), (err) => {
     assert.equal(err.name, 'LiveNotReadyError');
     assert.ok(err.blockers.some((b) => b.includes('missing-game:unknown')));
     return true;
   });
+  mappedTestPackage.partnerSku = null;
+  mappedTestPackage.providerCost = null;
+  mappedTestPackage.providerPriceCheckedAt = null;
+});
+
+test('existing development stores are purged of fake sales, contact claims and demo credits', () => {
+  const migrationDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vctopup-purge-test-'));
+  const oldState = {
+    version: 2,
+    products: [{ slug: 'mobile-legends', sold: 999, rating: 4.9, featured: true, packages: [{ id: '86-diamonds', partnerSku: '1001', oldPrice: 20, bonus: 'extra', popular: true, providerCost: 2, providerPriceCheckedAt: new Date().toISOString() }] }],
+    users: [
+      { id: 'usr_demo_admin', email: 'admin@vctopup.com', role: 'admin', balance: 500, points: 800 },
+      { id: 'usr_demo_customer', email: 'dara@example.com', balance: 50, points: 100 },
+      { id: 'usr_real_legacy', email: 'legacy.user@gmail.com', role: 'user', balance: 50, points: 100 },
+    ],
+    orders: [{ code: 'VC-DEMO-1', payment: { verification: 'sandbox', transactionId: 'TXN12345' }, customer: { email: 'dara@example.com' } }],
+    messages: [{ email: 'dara@example.com' }], reviews: [{ id: 'review-demo' }], promos: [{ code: 'VC10' }],
+    settings: { phone: '+85512345678', telegram: '@vctopup', email: 'info@example.com', stats: { customers: 40000 } },
+  };
+  fs.writeFileSync(path.join(migrationDir, 'db.json'), JSON.stringify(oldState));
+  const dbUrl = pathToFileURL(path.resolve('server/db.js')).href;
+  const result = execFileSync(process.execPath, ['--input-type=module', '-e', `const {getDB}=await import(${JSON.stringify(dbUrl)}); console.log(JSON.stringify(getDB()));`], {
+    cwd: path.resolve('.'), env: { ...process.env, VC_DATA_DIR: migrationDir, PAYMENT_MODE: 'sandbox', DATABASE_URL: '' }, encoding: 'utf8',
+  });
+  const migrated = JSON.parse(result.trim().split(/\r?\n/).at(-1));
+  assert.equal(migrated.version, 3);
+  assert.equal(migrated.users.length, 1);
+  assert.equal(migrated.users[0].balance, undefined);
+  assert.equal(migrated.users[0].points, undefined);
+  assert.equal(migrated.orders.length, 0);
+  assert.equal(migrated.messages.length, 0);
+  assert.equal(migrated.reviews.length, 0);
+  assert.equal(migrated.promos.length, 0);
+  assert.equal(migrated.settings.phone, '');
+  assert.equal(migrated.settings.telegram, '');
+  assert.deepEqual(migrated.settings.stats, { orders: 0, customers: 0, games: 0, uptime: null });
+  assert.equal(migrated.products[0].sold, 0);
+  assert.equal(migrated.products[0].rating, null);
+  assert.equal(migrated.products[0].featured, false);
+  assert.deepEqual(migrated.products[0].packages[0].oldPrice, null);
+  assert.equal(migrated.products[0].packages[0].providerPriceCheckedAt, undefined);
+});
+
+test('fresh store contains no seeded accounts, sample orders, reviews or fake promos', () => {
+  const fresh = db.getDB();
+  assert.equal(fresh.users.length, 0);
+  assert.equal(fresh.orders.length, 0);
+  assert.equal(fresh.reviews.length, 0);
+  assert.equal(fresh.promos.length, 0);
+  assert.deepEqual(fresh.paymentMethods.map((m) => m.id), ['bakong']);
+  assert.equal(fresh.settings.exchangeRate, null);
+  assert.ok(fresh.products.every((p) => p.sold === 0 && p.rating === null && p.packages.every((pk) => !pk.partnerSku && !pk.oldPrice)));
+});
+
+test('Google ID-token and Telegram Login Widget signatures are verified server-side', async () => {
+  const providerStatus = authProviders.authProviderConfig();
+  assert.equal(providerStatus.googleReady, true);
+  assert.equal(providerStatus.telegramReady, true);
+  assert.equal(providerStatus.telegramBotUsername, 'vctopup_test_bot');
+  process.env.GOOGLE_CLIENT_ID = 'REPLACE_WITH_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com';
+  process.env.TELEGRAM_BOT_USERNAME = 'REPLACE_WITH_TELEGRAM_BOT_USERNAME';
+  process.env.TELEGRAM_BOT_TOKEN = 'REPLACE_WITH_TELEGRAM_BOT_TOKEN';
+  assert.deepEqual(authProviders.authProviderConfig(), { googleClientId: '', telegramBotUsername: '', googleReady: false, telegramReady: false });
+  process.env.GOOGLE_CLIENT_ID = '123456789012-testclient.apps.googleusercontent.com';
+  process.env.TELEGRAM_BOT_USERNAME = 'vctopup_test_bot';
+  process.env.TELEGRAM_BOT_TOKEN = `123456:${'A'.repeat(40)}`;
+  const google = await authProviders.verifyGoogleCredential('id-token'.padEnd(150, 'x'));
+  assert.equal(google.providerId, 'google-user-98765');
+  assert.equal(google.email, 'verified.user@gmail.com');
+  assert.equal(google.emailVerified, true);
+
+  const fields = { id: 987654, first_name: 'Telegram', username: 'player_kh', auth_date: String(Math.floor(Date.now() / 1000)) };
+  const check = Object.keys(fields).sort().map((key) => `${key}=${fields[key]}`).join('\n');
+  const secretKey = crypto.createHash('sha256').update(process.env.TELEGRAM_BOT_TOKEN).digest();
+  const hash = crypto.createHmac('sha256', secretKey).update(check).digest('hex');
+  const telegram = authProviders.verifyTelegramLogin({ ...fields, hash });
+  assert.equal(telegram.providerId, '987654');
+  assert.equal(telegram.username, 'player_kh');
+  assert.equal(telegram.email, null);
+  assert.throws(() => authProviders.verifyTelegramLogin({ ...fields, hash: '0'.repeat(64) }), /verification failed/i);
+});
+
+test('forced admin retry still refuses delivery unless Bakong payment is verified', async () => {
+  const unpaid = {
+    code: 'VC-UNPAID-0001', items: [item], total: 1.5,
+    payment: { method: 'bakong', verification: 'bakong', status: 'pending' },
+    status: 'pending', fulfillment: {}, timeline: [],
+  };
+  db.mutate((state) => state.orders.unshift(unpaid));
+  const requestsBefore = requests.length;
+  const result = await payments.deliverOrder(unpaid.code, { force: true });
+  assert.equal(result.status, 409);
+  assert.match(result.error, /payment has not been verified/i);
+  assert.equal(requests.length, requestsBefore);
 });
 
 test('generic partner callback remains supported', () => {
@@ -219,7 +329,7 @@ test('signed Shop2Topup webhook delivers a verified paid order exactly once', as
     d.orders.unshift({
       code, status: 'paid', payment: { status: 'paid' }, items: [item],
       customer: order.customer, fulfillment: { providerOrders: plan.orders },
-      timeline: [], pointsEarned: 5, pointsAwarded: false,
+      timeline: [],
     });
     d.partnerOrderMap ||= {};
     d.partnerOrderMap[providerOrderId] = code;
@@ -243,7 +353,7 @@ test('signed Shop2Topup webhook delivers a verified paid order exactly once', as
   const replay = await payments.handlePartnerCallback(raw, '', '', headers);
   assert.equal(replay.duplicate, true);
   const stored = db.getDB().orders.find((o) => o.code === code);
-  assert.equal(stored.pointsAwarded, true);
+  assert.equal(stored.pointsAwarded, undefined);
 
   const forged = await payments.handlePartnerCallback(raw, `sha256=${'0'.repeat(64)}`, '', { 'x-shop2topup-signature': `sha256=${'0'.repeat(64)}` });
   assert.equal(forged.status, 401);
@@ -255,7 +365,7 @@ test('callback for an unpaid order is ignored', async () => {
   await db.transact((d) => {
     d.orders.unshift({
       code, status: 'pending', payment: { status: 'pending' }, items: [item],
-      customer: order.customer, fulfillment: {}, timeline: [], pointsEarned: 0, pointsAwarded: false,
+      customer: order.customer, fulfillment: {}, timeline: [],
     });
     d.partnerOrderMap ||= {};
     d.partnerOrderMap[providerOrderId] = code;

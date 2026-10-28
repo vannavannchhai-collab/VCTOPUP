@@ -1,37 +1,18 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ShoppingCart, Trash2, ArrowRight, Tag, X, Minus, Plus, ShieldCheck,
-  ArrowLeft, CheckCircle2, Info,
+  ArrowLeft, Info,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { api } from '../lib/api.js';
 import { usd, khr } from '../lib/format.js';
 import { ProductArt, Price, PageHead } from '../components/ui.jsx';
 
 export default function CartPage() {
-  const { t, cart, removeFromCart, updateQty, clearCart, cartSubtotal, promo, setPromo, rate, notify } = useStore();
-  const [code, setCode] = useState('');
-  const [promoError, setPromoError] = useState('');
-  const [checking, setChecking] = useState(false);
+  const { t, cart, removeFromCart, updateQty, clearCart, cartSubtotal, rate } = useStore();
   const navigate = useNavigate();
 
-  const discount = promo ? (promo.type === 'percent' ? cartSubtotal * promo.value / 100 : Math.min(promo.value, cartSubtotal)) : 0;
-  const total = Math.max(0, cartSubtotal - discount);
-
-  const applyPromo = async (e) => {
-    e.preventDefault();
-    if (!code.trim()) return;
-    setChecking(true); setPromoError('');
-    try {
-      const res = await api.post('/promo/validate', { code: code.trim(), subtotal: cartSubtotal });
-      setPromo(res.data);
-      notify(t('cart.promoOk'), 'success');
-      setCode('');
-    } catch (err) {
-      setPromoError(err.message);
-    } finally { setChecking(false); }
-  };
+  const total = cartSubtotal;
 
   return (
     <>
@@ -56,7 +37,7 @@ export default function CartPage() {
                   <ProductArt className="item-art" product={item} compact />
                   <div className="grow" style={{ minWidth: 0 }}>
                     <h4>{item.productName}</h4>
-                    <div className="item-meta">{item.packageLabel} · {usd(item.price)} / unit · {khr(item.price, rate)}</div>
+                    <div className="item-meta">{item.packageLabel} · {usd(item.price)} / unit{rate ? ` · ${khr(item.price, rate)}` : ''}</div>
                     {item.accountId && <div className="item-account">{t('cart.account')} {item.accountId}</div>}
                     <div style={{ marginTop: 10 }}>
                       <div className="qty-control">
@@ -91,23 +72,8 @@ export default function CartPage() {
             <div className="panel-head"><h2><Tag size={18} /> {t('cart.summary')}</h2></div>
             <div className="panel-body">
               <div className="summary-row"><span>{t('c.subtotal')}</span><span>{usd(cartSubtotal)}</span></div>
-              {promo && <div className="summary-row" style={{ color: '#6ee7b7' }}><span>{t('c.discount')} ({promo.code})</span><span>-{usd(discount)}</span></div>}
-              <div className="summary-row"><span>{t('c.free')} — {t('p.delivery')}</span><span className="text-green">{t('c.instant')}</span></div>
+              <div className="summary-row"><span>{t('p.delivery')}</span><span className="text-dim">{t('live.providerDelivery')}</span></div>
               <div className="summary-row total"><span>{t('c.total')}</span><Price value={total} size="lg" rate={rate} /></div>
-
-              {!promo ? (
-                <form className="promo-form" onSubmit={applyPromo}>
-                  <input className="input" placeholder={t('cart.promoPh')} value={code} onChange={(e) => setCode(e.target.value)} />
-                  <button className="btn btn-outline btn-sm" disabled={checking || !code.trim()} type="submit">{t('c.apply')}</button>
-                </form>
-              ) : (
-                <div className="promo-applied">
-                  <span className="row gap-6"><CheckCircle2 size={15} /> {promo.code} · -{usd(discount)}</span>
-                  <button className="icon-btn" style={{ width: 26, height: 26 }} onClick={() => setPromo(null)}><X size={13} /></button>
-                </div>
-              )}
-              {!promo && <div className="form-hint">{t('cart.promoHint')}</div>}
-              {promoError && <div className="form-error">{promoError}</div>}
 
               <button className="btn btn-primary btn-block btn-lg" style={{ marginTop: 20 }}
                 disabled={cart.length === 0} onClick={() => navigate('/checkout')}>

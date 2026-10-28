@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { api } from '../lib/api.js';
-import { compact } from '../lib/format.js';
 import ProductCard from '../components/ProductCard.jsx';
 import Icon from '../components/Icon.jsx';
 import { SectionHead, Stars, Reveal, CopyButton } from '../components/ui.jsx';
@@ -19,8 +18,8 @@ const WHY_ICONS = [Timer, BadgePercent, Crown, Headphones];
 const TRUST_ICONS = [Timer, ShieldCheck, BadgePercent, Headphones];
 
 function Hero() {
-  const { t, settings } = useStore();
-  const s = settings.stats || {};
+  const { t, boot } = useStore();
+  const catalog = boot.featured || [];
   return (
     <section className="hero">
       <div className="container hero-grid">
@@ -32,45 +31,21 @@ function Hero() {
           </h1>
           <p className="hero-subtitle animate-fade-up" style={{ animationDelay: '.12s' }}>{t('hero.subtitle')}</p>
           <div className="hero-ctas animate-fade-up" style={{ animationDelay: '.18s' }}>
-            <Link to="/shop" className="btn btn-primary btn-lg"><Zap size={18} fill="currentColor" /> {t('hero.cta')}</Link>
-            <Link to="/#how" className="btn btn-outline btn-lg"><Play size={16} fill="currentColor" /> {t('hero.cta2')}</Link>
+            <Link to={catalog.length ? '/shop' : '/contact'} className="btn btn-primary btn-lg">
+              <Zap size={18} fill="currentColor" /> {catalog.length ? t('hero.cta') : t('live.setupContact')}
+            </Link>
+            {catalog.length > 0 && <Link to="/#how" className="btn btn-outline btn-lg"><Play size={16} fill="currentColor" /> {t('hero.cta2')}</Link>}
           </div>
-          <div className="hero-stats animate-fade-up" style={{ animationDelay: '.24s' }}>
-            <div className="hero-stat"><strong className="gradient-text">{compact(s.customers || 42900)}+</strong><small>{t('hero.stat1')}</small></div>
-            <div className="hero-stat"><strong className="gradient-text">{compact(s.orders || 128450)}+</strong><small>{t('hero.stat2')}</small></div>
-            <div className="hero-stat"><strong className="gradient-text">24/7</strong><small>{t('hero.stat3')}</small></div>
-          </div>
+          {!catalog.length && <div className="alert alert-info live-catalog-notice"><LockKeyhole size={16} /><span>{t('live.catalogNotReady')}</span></div>}
         </div>
-        <div className="hero-visual animate-fade-up" style={{ animationDelay: '.1s' }}>
-          <div className="orb" />
-          <div className="ring" />
-          <img className="hero-gem" src="/img/hero-gem.webp" alt="VC TOPUP crystal" />
-          <div className="hero-float f1">
-            <span className="fi" style={{ background: 'rgba(52,211,153,.18)', color: '#6ee7b7' }}><CheckCircle2 size={17} /></span>
-            <div><strong>{t('hero.float1')}</strong><small>MLBB · 706 Diamonds</small></div>
-          </div>
-          <div className="hero-float f2">
-            <span className="fi" style={{ background: 'rgba(139,92,246,.2)', color: '#c4b5fd' }}><Timer size={17} /></span>
-            <div><strong>{t('hero.float2')}</strong><small>{t('hero.float3')}</small></div>
-          </div>
-          <div className="hero-float f3">
-            <span className="fi" style={{ background: 'rgba(34,211,238,.18)', color: '#67e8f9' }}><LockKeyhole size={16} /></span>
-            <div><strong>100% Secure</strong><small>KHQR ·ABA · Wing</small></div>
-          </div>
-        </div>
-      </div>
-
-      <div className="container">
-        <div className="trust-strip">
-          {[1, 2, 3, 4].map((i) => {
-            const I = TRUST_ICONS[i - 1];
-            return (
-              <div className="trust-item" key={i}>
-                <span className="ti"><I size={20} /></span>
-                <div><strong>{t(`trust.${i}`)}</strong><small>{t(`trust.${i}d`)}</small></div>
-              </div>
-            );
-          })}
+        <div className="hero-visual official-logo-hero animate-fade-up" style={{ animationDelay: '.1s' }}>
+          {catalog.length ? (
+            <div className="hero-brand-grid">
+              {catalog.slice(0, 6).map((product) => <div className="hero-brand-card" key={product.id}><ProductArt product={product} /><span>{product.name}</span></div>)}
+            </div>
+          ) : (
+            <div className="live-setup-card"><LockKeyhole size={38} /><strong>{t('live.catalogLocked')}</strong><p>{t('live.catalogNotReady')}</p></div>
+          )}
         </div>
       </div>
     </section>
@@ -138,27 +113,6 @@ function HowItWorks() {
   );
 }
 
-function PromoBanner() {
-  const { t, notify } = useStore();
-  return (
-    <section className="section-tight">
-      <div className="container">
-        <Reveal className="promo-banner">
-          <img className="coins" src="/img/promo-coins.webp" alt="" />
-          <div className="promo-content">
-            <div className="eyebrow"><Sparkles size={14} /> {t('promo.eyebrow')}</div>
-            <h2>{t('promo.title')} <span className="gradient-text">VC10</span></h2>
-            <p>{t('promo.desc')}</p>
-            <div className="row gap-16 wrap">
-              <CopyButton text="VC10" className="promo-code-btn" onCopied={() => notify(t('c.copied'), 'success')}>VC10</CopyButton>
-              <span className="tiny text-dim">{t('promo.note')}</span>
-            </div>
-          </div>
-        </Reveal>
-      </div>
-    </section>
-  );
-}
 
 function Payments() {
   const { t, L, boot } = useStore();
@@ -169,15 +123,12 @@ function Payments() {
         <div className="pay-grid">
           {boot.paymentMethods.map((m, i) => (
             <Reveal className="pay-card" key={m.id} delay={i * 60}>
-              <span className="pay-logo" style={{ background: `linear-gradient(140deg, ${m.colors[0]}, ${m.colors[1]})` }}>
-                <Icon name={m.icon} size={23} />
-              </span>
               <strong>{m.name}</strong>
-              <small>{m.id === 'aba' || m.id === 'acleda' ? 'KHQR' : m.id === 'wallet' ? 'Instant' : 'E-Wallet'}</small>
+              <small>{m.kind === 'khqr' ? 'KHQR' : t('pay.paymentMethod')}</small>
             </Reveal>
           ))}
         </div>
-        <div className="khqr-note"><ShieldCheck size={15} /> {t('ft.secure')} — ABA · ACLEDA · Wing · TrueMoney · VC Wallet</div>
+        <div className="khqr-note"><ShieldCheck size={15} /> {t('pay.secureNote')}</div>
       </div>
     </section>
   );
@@ -244,8 +195,7 @@ function FAQ() {
           <h2>{t('s.faq')}</h2>
           <p>{t('s.faqSub')}</p>
           <div className="row gap-12 wrap" style={{ marginBottom: 20 }}>
-            <span className="pill"><Clock3 size={12} /> 24/7 {t('ft.support')}</span>
-            <span className="pill"><Send size={12} /> {settings.telegram}</span>
+            {settings.telegram && <span className="pill"><Send size={12} /> {settings.telegram}</span>}
           </div>
           <Link to="/contact" className="btn btn-outline btn-sm">{t('nav.contact')} <ArrowRight size={15} /></Link>
         </div>
@@ -273,6 +223,18 @@ export default function Home() {
   const featured = (boot.featured.length ? boot.featured : products).slice(0, 8);
   const popular = (boot.popular.length ? boot.popular : products).slice(0, 4);
 
+  if (!boot.productCount) return (
+    <>
+      <Hero />
+      <section className="section live-store-status"><div className="container">
+        <div className="panel"><div className="panel-body live-store-status-inner">
+          <LockKeyhole size={28} /><div><h2>{t('live.catalogLocked')}</h2><p>{t('live.catalogNotReady')}</p></div>
+          <Link to="/contact" className="btn btn-outline btn-sm">{t('nav.contact')} <ArrowRight size={15} /></Link>
+        </div></div>
+      </div></section>
+    </>
+  );
+
   return (
     <>
       <Hero />
@@ -284,12 +246,11 @@ export default function Home() {
             action="/shop" actionText={t('c.viewAll')} />
           <div className="product-grid">
             {featured.length ? featured.map((p, i) => <ProductCard key={p.id} product={p} delay={(i % 4) * 60} />)
-              : Array.from({ length: 4 }, (_, i) => <div key={i} className="skeleton" style={{ height: 300 }} />)}
+              : <div className="empty-state live-empty-state"><LockKeyhole size={28} /><h3>{t('live.catalogLocked')}</h3><p>{t('live.catalogNotReady')}</p></div>}
           </div>
         </div>
       </section>
 
-      <PromoBanner />
       <HowItWorks />
 
       <section className="section-sm" id="popular">
@@ -298,7 +259,7 @@ export default function Home() {
             action="/shop?sort=popular" actionText={t('c.viewAll')} />
           <div className="product-grid">
             {popular.length ? popular.map((p, i) => <ProductCard key={p.id} product={p} delay={(i % 4) * 60} />)
-              : Array.from({ length: 4 }, (_, i) => <div key={i} className="skeleton" style={{ height: 300 }} />)}
+              : <div className="empty-state live-empty-state"><LockKeyhole size={28} /><h3>{t('live.catalogLocked')}</h3><p>{t('live.catalogNotReady')}</p></div>}
           </div>
         </div>
       </section>

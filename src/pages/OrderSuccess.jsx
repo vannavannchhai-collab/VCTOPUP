@@ -9,7 +9,7 @@ import { CopyButton, StatusBadge, Price } from '../components/ui.jsx';
 export default function OrderSuccess() {
   const { code } = useParams();
   const location = useLocation();
-  const { t, rate, notify, settings } = useStore();
+  const { t, rate, notify } = useStore();
   const [order, setOrder] = useState(location.state?.order || null);
   const [loading, setLoading] = useState(!order);
 
@@ -83,7 +83,6 @@ export default function OrderSuccess() {
           <div className="row between gap-12 wrap tiny text-dim" style={{ marginTop: 12 }}>
             <span>{t('c.date')}: {dateTime(order?.createdAt)}</span>
             <span>{t('ad.method')}: {order?.payment?.method?.toUpperCase()}</span>
-            <span>+{order?.pointsEarned || 0} {t('ac.points')}</span>
           </div>
         </div>
       </div>
@@ -105,9 +104,6 @@ export default function OrderSuccess() {
               </div>
             ))}
           </div>
-          {order?.payment?.sandbox && (
-            <div className="alert alert-warn" style={{ marginTop: 14 }}><QrCode size={14} /> {t('pay.sandbox')}</div>
-          )}
           {order?.fulfillment?.ref && (
             <div className="tiny text-dim" style={{ marginTop: 10 }}>{t('pay.ref')}: {order.fulfillment.ref}</div>
           )}
@@ -142,7 +138,7 @@ export default function OrderSuccess() {
         <Link to="/" className="btn btn-outline btn-lg">{t('c.goHome')}</Link>
       </div>
       <p className="text-center small text-dim" style={{ marginTop: 22 }}>
-        {t('suc.help')} <a href={`https://t.me/${(settings.telegram || '@vctopup').replace('@', '')}`} target="_blank" rel="noreferrer" style={{ color: '#c4b5fd' }}>{settings.telegram}</a>
+        {t('suc.help')} <Link to="/contact" style={{ color: '#c4b5fd' }}>{t('nav.contact')}</Link>
       </p>
     </div>
   );

@@ -1,14 +1,14 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
-  Zap, Mail, LockKeyhole, User, Phone, ArrowRight, ShieldCheck, Sparkles,
+  Zap, Mail, LockKeyhole, User, Phone, ArrowRight,
   CheckCircle2, Info, Eye, EyeOff,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
-import { api } from '../lib/api.js';
+import AuthProviders from '../components/AuthProviders.jsx';
 
 export default function Login() {
-  const { t, lang, login, register, notify } = useStore();
+  const { t, lang, login, register, socialLogin, notify } = useStore();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -38,20 +38,20 @@ export default function Login() {
     finally { setLoading(false); }
   };
 
-  const useDemo = async (email, password) => {
+  const onSocialAuth = useCallback(async (provider, credential) => {
     setError(''); setLoading(true);
     try {
-      await login(email, password);
+      await socialLogin(provider, credential);
       notify(t('au.welcome'), 'success');
-      navigate('/account', { replace: true });
+      navigate(location.state?.from || '/account', { replace: true });
     } catch (err) { setError(err.message); }
     finally { setLoading(false); }
-  };
+  }, [socialLogin, notify, t, navigate, location.state]);
 
   return (
     <div className="auth-wrap">
       <div className="auth-visual">
-        <img className="gem-img" src="/img/hero-gem.webp" alt="" />
+        <div className="auth-brand-mark" aria-label="VC TOPUP"><Zap size={52} fill="currentColor" /><strong>VC TOPUP</strong></div>
         <h2>{t('au.welcome')}</h2>
         <p>{t('au.registerSub')} · {t('hero.subtitle')}</p>
         <ul className="auth-benefits">
@@ -96,7 +96,7 @@ export default function Login() {
             <div className="form-group">
               <label className="field-label">{t('au.password')} *</label>
               <div className="field"><span className="field-icon"><LockKeyhole size={16} /></span>
-                <input className="input with-icon" type={showPass ? 'text' : 'password'} required minLength={6}
+                <input className="input with-icon" type={showPass ? 'text' : 'password'} required minLength={tab === 'register' ? 10 : 1}
                   value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="••••••••" style={{ paddingRight: 44 }} />
                 <button type="button" className="icon-btn" style={{ position: 'absolute', right: 6, top: 6, width: 34, height: 34 }} onClick={() => setShowPass((v) => !v)}>
                   {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -107,7 +107,7 @@ export default function Login() {
               <div className="form-group">
                 <label className="field-label">{t('au.confirm')} *</label>
                 <div className="field"><span className="field-icon"><LockKeyhole size={16} /></span>
-                  <input className="input with-icon" type="password" required minLength={6}
+                  <input className="input with-icon" type="password" required minLength={10}
                     value={form.confirm} onChange={(e) => set('confirm', e.target.value)} placeholder="••••••••" /></div>
               </div>
             )}
@@ -117,6 +117,8 @@ export default function Login() {
             </button>
           </form>
 
+          <AuthProviders onAuth={onSocialAuth} busy={loading} setError={setError} t={t} />
+
           <p className="text-center small" style={{ marginTop: 18 }}>
             {tab === 'login' ? t('au.noAccount') : t('au.hasAccount')}{' '}
             <button onClick={() => switchTab(tab === 'login' ? 'register' : 'login')} style={{ color: '#c4b5fd', fontWeight: 700 }}>
@@ -124,18 +126,7 @@ export default function Login() {
             </button>
           </p>
 
-          <div className="demo-box">
-            <div className="db-title"><Sparkles size={14} /> {t('au.demo')}</div>
-            <div className="demo-account">
-              <div className="da-info"><strong>{t('au.demoAdmin')}</strong><small>admin@vctopup.com · Admin@123</small></div>
-              <button className="btn btn-outline btn-xs" onClick={() => useDemo('admin@vctopup.com', 'Admin@123')}>{t('au.useAccount')}</button>
-            </div>
-            <div className="demo-account">
-              <div className="da-info"><strong>{t('au.demoUser')}</strong><small>dara@example.com · User@123</small></div>
-              <button className="btn btn-outline btn-xs" onClick={() => useDemo('dara@example.com', 'User@123')}>{t('au.useAccount')}</button>
-            </div>
-            <p className="tiny text-dim" style={{ marginTop: 10 }}><ShieldCheck size={11} style={{ verticalAlign: -2, marginRight: 4 }} />{t('co.demoNotice')}</p>
-          </div>
+
         </div>
       </div>
     </div>

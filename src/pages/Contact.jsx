@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Phone, Mail, MapPin, Clock3, Send, Facebook, Youtube, Instagram,
-  CheckCircle2, Info, ArrowRight, HelpCircle, Sparkles,
+  Phone, Mail, MapPin, Send,
+  CheckCircle2, Info, ArrowRight, HelpCircle,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
 import { api } from '../lib/api.js';
@@ -26,13 +26,14 @@ export default function Contact() {
     finally { setBusy(false); }
   };
 
+  const telegramHandle = String(settings.telegram || '').replace(/^@/, '');
+  const address = L(settings.address);
   const items = [
-    { icon: Phone, label: t('ct.phone'), value: settings.phone, href: `tel:${settings.phone}` },
-    { icon: Mail, label: t('ct.email'), value: settings.email, href: `mailto:${settings.email}` },
-    { icon: Send, label: 'Telegram', value: settings.telegram, href: `https://t.me/${(settings.telegram || 'vctopup').replace('@', '')}` },
-    { icon: MapPin, label: t('ct.address'), value: L(settings.address) },
-    { icon: Clock3, label: t('ct.hours'), value: t('ct.hoursValue') },
-  ];
+    settings.phone && { icon: Phone, label: t('ct.phone'), value: settings.phone, href: `tel:${settings.phone}` },
+    settings.email && { icon: Mail, label: t('ct.email'), value: settings.email, href: `mailto:${settings.email}` },
+    telegramHandle && { icon: Send, label: 'Telegram', value: settings.telegram, href: `https://t.me/${telegramHandle}` },
+    address && { icon: MapPin, label: t('ct.address'), value: address },
+  ].filter(Boolean);
 
   return (
     <>
@@ -63,13 +64,12 @@ export default function Contact() {
           <div className="panel" style={{ marginBottom: 18 }}>
             <div className="panel-head"><h2 style={{ fontSize: '1rem' }}>{t('ct.infoTitle')}</h2></div>
             <div className="panel-body">
-              {items.map((it, i) => (
-                <a className="contact-info-card" key={i} href={it.href} target={it.href?.startsWith('http') ? '_blank' : undefined} rel="noreferrer"
-                  style={{ marginBottom: i === items.length - 1 ? 0 : 12 }}>
-                  <span className="ci"><it.icon size={19} /></span>
-                  <div><strong>{it.label}</strong><p>{it.value}</p></div>
-                </a>
-              ))}
+              {items.length ? items.map((it, i) => {
+                const Card = it.href ? 'a' : 'div';
+                return <Card className="contact-info-card" key={i} href={it.href} target={it.href?.startsWith('http') ? '_blank' : undefined} rel="noreferrer" style={{ marginBottom: i === items.length - 1 ? 0 : 12 }}>
+                  <span className="ci"><it.icon size={19} /></span><div><strong>{it.label}</strong><p>{it.value}</p></div>
+                </Card>;
+              }) : <p className="text-dim small">{t('live.contactNotConfigured')}</p>}
             </div>
           </div>
 
@@ -78,14 +78,7 @@ export default function Contact() {
               <div className="row gap-10" style={{ marginBottom: 12 }}><HelpCircle size={19} className="text-violet" /><strong>{t('s.faq')}</strong></div>
               <p className="small" style={{ marginBottom: 14 }}>{t('ct.faqHint')} <Link to="/#faq" style={{ color: '#c4b5fd' }}>{t('ct.faqLink')}</Link>.</p>
               <Link to="/#faq" className="btn btn-outline btn-sm">{t('ct.faqLink')} <ArrowRight size={14} /></Link>
-              <div className="divider" style={{ margin: '20px 0' }} />
-              <div className="row gap-10" style={{ marginBottom: 12 }}><Sparkles size={19} className="text-cyan" /><strong>{t('ft.follow')}</strong></div>
-              <div className="footer-social">
-                <a className="icon-btn" href={`https://t.me/${(settings.telegram || 'vctopup').replace('@', '')}`} target="_blank" rel="noreferrer"><Send size={16} /></a>
-                <a className="icon-btn" href="https://facebook.com" target="_blank" rel="noreferrer"><Facebook size={16} /></a>
-                <a className="icon-btn" href="https://youtube.com" target="_blank" rel="noreferrer"><Youtube size={16} /></a>
-                <a className="icon-btn" href="https://instagram.com" target="_blank" rel="noreferrer"><Instagram size={16} /></a>
-              </div>
+
             </div>
           </div>
         </div>

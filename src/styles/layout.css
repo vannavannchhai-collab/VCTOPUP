@@ -106,33 +106,6 @@
   background: radial-gradient(circle, rgba(139, 92, 246, .32), transparent 68%); filter: blur(48px);
   animation: pulse-glow 7s ease-in-out infinite;
 }
-.hero-visual .ring {
-  position: absolute; width: 400px; height: 400px; border-radius: 50%;
-  border: 1px solid rgba(139, 92, 246, .18); box-shadow: 0 0 0 40px rgba(139,92,246,.025), 0 0 0 90px rgba(34,211,238,.018);
-  animation: spin-slow 46s linear infinite;
-}
-.hero-visual .ring::before, .hero-visual .ring::after {
-  content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 16px #a78bfa;
-}
-.hero-visual .ring::before { top: 12%; left: 12%; }
-.hero-visual .ring::after { bottom: 16%; right: 10%; background: #22d3ee; box-shadow: 0 0 16px #22d3ee; }
-.hero-gem {
-  width: 100%; max-width: 620px; position: relative; z-index: 2;
-  animation: float-slow 7s ease-in-out infinite;
-  filter: drop-shadow(0 20px 60px rgba(109, 92, 255, .35));
-}
-.hero-float {
-  position: absolute; z-index: 4; display: flex; align-items: center; gap: 10px;
-  padding: 11px 15px; border-radius: 14px;
-  background: rgba(18, 25, 45, .82); border: 1px solid rgba(255,255,255,.11);
-  box-shadow: 0 16px 40px rgba(0,0,0,.45); backdrop-filter: blur(16px);
-}
-.hero-float .fi { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; flex: none; }
-.hero-float strong { display: block; font-size: .8rem; font-weight: 700; line-height: 1.3; }
-.hero-float small { display: block; font-size: .68rem; color: var(--muted-2); }
-.hero-float.f1 { top: 12%; left: 0; animation: float 5.5s ease-in-out infinite; }
-.hero-float.f2 { bottom: 16%; right: 0; animation: float 6.5s ease-in-out .8s infinite; }
-.hero-float.f3 { bottom: 4%; left: 8%; animation: float 5s ease-in-out 1.4s infinite; }
 
 /* ------------------------------------------------------------- trust strip */
 .trust-strip {
@@ -406,7 +379,6 @@ html[lang="km"] .product-card h3 { font-family: var(--font); }
   .hero-subtitle { margin-inline: auto; }
   .hero-ctas, .hero-stats { justify-content: center; }
   .hero-visual { height: 400px; margin-top: 10px; }
-  .hero-float.f1 { left: 5%; } .hero-float.f3 { left: 12%; }
   .trust-strip, .product-grid, .review-grid, .why-grid, .how-grid, .category-grid, .pay-grid { grid-template-columns: repeat(2, 1fr); }
   .how-grid::before { display: none; }
   .promo-banner .coins { width: 300px; opacity: .5; right: -80px; }
@@ -430,9 +402,6 @@ html[lang="km"] .product-card h3 { font-family: var(--font); }
   .hero-stat + .hero-stat::before { left: -11px; }
   .hero-stat strong { font-size: 1.35rem; }
   .hero-visual { height: 320px; }
-  .hero-visual .ring { width: 280px; height: 280px; }
-  .hero-float { transform: scale(.85); }
-  .hero-float.f1 { top: 2%; left: -2%; } .hero-float.f2 { bottom: 6%; right: -2%; } .hero-float.f3 { display: none; }
   .trust-strip { grid-template-columns: 1fr 1fr; margin-top: 10px; }
   .trust-item { padding: 15px 13px; gap: 10px; }
   .trust-item .ti { width: 34px; height: 34px; }
@@ -453,3 +422,19 @@ html[lang="km"] .product-card h3 { font-family: var(--font); }
   .toast-stack { left: 14px; right: 14px; bottom: 14px; }
   .toast { min-width: 0; width: 100%; }
 }
+
+/* Official brand assets only: avoid fabricated product art and fictional imagery. */
+.product-art.official-brand-art { display: grid; place-items: center; background: #fff; isolation: isolate; }
+.product-art.official-brand-art::before,
+.product-art.official-brand-art::after { display: none; }
+.brand-logo { display: grid; place-items: center; width: min(46%, 128px); aspect-ratio: 1; padding: 18px; border-radius: 22%; background: #fff; color: #111827; box-shadow: 0 10px 32px rgba(15,23,42,.16); }
+.brand-logo-svg { display: block; width: 100%; height: 100%; }
+.brand-logo-svg svg { display: block; width: 100%; height: 100%; fill: currentColor; }
+.brand-wordmark { max-width: 88%; color: #111827; font-size: clamp(.82rem, 2vw, 1.4rem); font-weight: 800; text-align: center; line-height: 1.2; }
+.brand-logo.compact { width: 70%; padding: 8px; border-radius: 18%; }
+.official-brand-art.mini-art,
+.official-brand-art.item-art,
+.official-brand-art.tp-art { background: #fff; }
+.official-brand-art.mini-art .brand-logo,
+.official-brand-art.item-art .brand-logo,
+.official-brand-art.tp-art .brand-logo { width: 82%; padding: 5px; border-radius: 18%; box-shadow: none; }

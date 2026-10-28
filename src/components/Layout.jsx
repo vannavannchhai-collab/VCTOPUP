@@ -2,9 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Zap, ShoppingCart, Menu, X, Globe, ChevronRight, ArrowRight, Send, Mail,
-  Phone, MapPin, ShieldCheck, Facebook, Youtube, Instagram, CheckCircle2,
+  Phone, MapPin, ShieldCheck, CheckCircle2,
   AlertTriangle, Info, ArrowUp, Trash2, Plus, Minus, User, LogOut,
-  LayoutDashboard, Package, Headphones, Sparkles, Clock, Gift, Gamepad2,
+  LayoutDashboard, Package, Headphones, Sparkles, Gift, Gamepad2,
   CreditCard, Smartphone, Clapperboard, MessageCircle,
 } from 'lucide-react';
 import { useStore } from '../lib/store.jsx';
@@ -13,7 +13,7 @@ import { ProductArt } from './ui.jsx';
 
 /* ------------------------------------------------------------------ header */
 function Header() {
-  const { t, L, lang, setLang, cartCount, setCartOpen, settings, user, logout, notify } = useStore();
+  const { t, L, lang, setLang, cartCount, setCartOpen, settings, user, logout, notify, boot } = useStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showTopbar, setShowTopbar] = useState(true);
   const location = useLocation();
@@ -82,9 +82,9 @@ function Header() {
             ) : (
               <Link to="/login" className="btn btn-outline btn-sm" style={{ height: 38 }}>{t('nav.login')}</Link>
             )}
-            <Link to="/shop" className="btn btn-primary btn-sm header-cta" style={{ height: 38 }}>
+            {boot.productCount > 0 && <Link to="/shop" className="btn btn-primary btn-sm header-cta" style={{ height: 38 }}>
               <Zap size={14} fill="currentColor" /> {t('hero.cta')}
-            </Link>
+            </Link>}
             <button className="icon-btn mobile-menu-btn" onClick={() => setMenuOpen((v) => !v)} aria-label={t('nav.menu')}>
               {menuOpen ? <X size={19} /> : <Menu size={19} />}
             </button>
@@ -169,7 +169,7 @@ function CartDrawer() {
         {cart.length > 0 && (
           <div className="drawer-foot">
             {promo && <div className="summary-row" style={{ color: '#6ee7b7' }}><span>{t('c.discount')} ({promo.code})</span><span>-{usd(discount)}</span></div>}
-            <div className="summary-row total"><span>{t('c.total')}</span><span>{usd(total)} <span className="tiny text-dim" style={{ fontWeight: 400 }}>≈ {khr(total, rate)}</span></span></div>
+            <div className="summary-row total"><span>{t('c.total')}</span><span>{usd(total)} {rate && <span className="tiny text-dim" style={{ fontWeight: 400 }}>≈ {khr(total, rate)}</span>}</span></div>
             <button className="btn btn-primary btn-block btn-lg" style={{ marginTop: 14 }}
               onClick={() => { setCartOpen(false); navigate('/checkout'); }}>
               {t('cart.checkout')} <ArrowRight size={17} />
@@ -205,13 +205,12 @@ function Toasts() {
 
 /* ------------------------------------------------------------------ footer */
 function Footer() {
-  const { t, L, settings, lang, notify } = useStore();
-  const [email, setEmail] = useState('');
-  const subscribe = (e) => {
-    e.preventDefault();
-    if (!email.includes('@')) return notify(lang === 'kh' ? 'សូមបញ្ចូលអ៊ីមែលឱ្យបានត្រឹមត្រូវ' : 'Please enter a valid email', 'error');
-    notify(t('ft.subscribed'), 'success'); setEmail('');
-  };
+  const { t, settings, boot } = useStore();
+  const contacts = [
+    settings.phone && <a key="phone" className="row gap-8" href={`tel:${settings.phone}`}><Phone size={13} /> {settings.phone}</a>,
+    settings.email && <a key="email" className="row gap-8" href={`mailto:${settings.email}`}><Mail size={13} /> {settings.email}</a>,
+    settings.telegram && <a key="telegram" className="row gap-8" href={/^https?:/.test(settings.telegram) ? settings.telegram : `https://t.me/${String(settings.telegram).replace(/^@/, '')}`} target="_blank" rel="noreferrer"><Send size={13} /> {settings.telegram}</a>,
+  ].filter(Boolean);
   return (
     <footer className="site-footer">
       <div className="container footer-grid">
@@ -219,12 +218,6 @@ function Footer() {
           <Link to="/" className="brand"><span className="brand-mark"><Zap size={21} fill="currentColor" /></span>
             <span className="brand-text"><strong>VC<em>TOPUP</em></strong><small>GAME CREDIT STORE</small></span></Link>
           <p>{t('ft.desc')}</p>
-          <div className="footer-social">
-            <a className="icon-btn" href="https://t.me/vctopup" target="_blank" rel="noreferrer" aria-label="Telegram"><Send size={16} /></a>
-            <a className="icon-btn" href="https://facebook.com" target="_blank" rel="noreferrer" aria-label="Facebook"><Facebook size={16} /></a>
-            <a className="icon-btn" href="https://youtube.com" target="_blank" rel="noreferrer" aria-label="Youtube"><Youtube size={16} /></a>
-            <a className="icon-btn" href="https://instagram.com" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram size={16} /></a>
-          </div>
         </div>
         <div className="footer-col">
           <h4>{t('ft.shop')}</h4>
@@ -241,31 +234,21 @@ function Footer() {
           <ul>
             <li><Link to="/track">{t('nav.track')}</Link></li>
             <li><Link to="/#faq">{t('s.faq')}</Link></li>
-            <li><Link to="/#how">{t('nav.how')}</Link></li>
             <li><Link to="/contact">{t('nav.contact')}</Link></li>
             <li><Link to="/about">{t('nav.about')}</Link></li>
           </ul>
         </div>
-        <div className="footer-col">
-          <h4>{t('ft.newsletter')}</h4>
-          <p style={{ fontSize: '.82rem', lineHeight: 1.7 }}>{t('ft.newsletterDesc')}</p>
-          <form className="footer-news" onSubmit={subscribe}>
-            <input className="input" placeholder={t('ft.emailPh')} value={email} onChange={(e) => setEmail(e.target.value)} />
-            <button className="btn btn-primary btn-sm" type="submit">{t('ft.subscribe')}</button>
-          </form>
-          <div style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 8, fontSize: '.78rem', color: 'var(--muted)' }}>
-            <span className="row gap-8"><Phone size={13} /> {settings.phone}</span>
-            <span className="row gap-8"><Mail size={13} /> {settings.email}</span>
-            <span className="row gap-8"><Send size={13} /> {settings.telegram}</span>
-          </div>
-        </div>
+        {contacts.length > 0 && <div className="footer-col">
+          <h4>{t('nav.contact')}</h4>
+          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.78rem', color: 'var(--muted)' }}>{contacts}</div>
+        </div>}
       </div>
       <div className="container footer-bottom">
-        <span>© {new Date().getFullYear()} VC TOPUP. {t('ft.rights')} · {t('ft.made')}</span>
+        <span>© {new Date().getFullYear()} VC TOPUP. {t('ft.rights')}</span>
         <div className="footer-badges">
           <span className="fb"><ShieldCheck size={12} /> {t('ft.secure')}</span>
-          <span className="fb"><CreditCard size={12} /> KHQR</span>
-          <span className="fb"><Clock size={12} /> 24/7</span>
+          {boot.payment?.live && boot.payment?.ready && <span className="fb"><CreditCard size={12} /> Bakong KHQR</span>}
+          {boot.payment?.live && boot.payment?.ready && <span className="fb"><CheckCircle2 size={12} /> {t('live.providerDelivery')}</span>}
         </div>
       </div>
     </footer>
