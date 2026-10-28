@@ -87,7 +87,7 @@ export function shop2topupConfig() {
     timeoutMs: Math.max(3000, Number(env.SHOP2TOPUP_TIMEOUT_MS || 15000)),
     validatePlayer: String(env.SHOP2TOPUP_VALIDATE_PLAYER || 'true').toLowerCase() !== 'false',
     maxCostRatio: Math.max(0.1, Math.min(1, Number(env.SHOP2TOPUP_MAX_COST_RATIO || 1))),
-    retailMultiplier: Math.max(1, Math.min(3, Number(env.SHOP2TOPUP_RETAIL_MULTIPLIER || 1.1))),
+    retailMultiplier: Math.max(1, Math.min(3, Number(env.SHOP2TOPUP_RETAIL_MULTIPLIER || 1.5))),
     priceMaxAgeMs: Math.max(60_000, Number(env.SHOP2TOPUP_PRICE_MAX_AGE_HOURS || 24) * 60 * 60_000),
     skuMap: p.skuMap,
     webhookUrl: p.webhookUrl,

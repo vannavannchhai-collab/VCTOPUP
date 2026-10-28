@@ -26,6 +26,7 @@ process.env.SHOP2TOPUP_BASE_URL = 'https://mock.shop2topup.test/api/endpoints/v1
 process.env.SHOP2TOPUP_API_KEY = 'key_abc123456.secret_xyz987654321';
 process.env.SHOP2TOPUP_WEBHOOK_SECRET = 'webhook_hmac_secret_0123456789';
 process.env.SHOP2TOPUP_CATEGORY_ID = '12';
+process.env.SHOP2TOPUP_RETAIL_MULTIPLIER = '1.5';
 process.env.SHOP2TOPUP_VALIDATE_PLAYER = 'true';
 process.env.GOOGLE_CLIENT_ID = '123456789012-testclient.apps.googleusercontent.com';
 process.env.TELEGRAM_BOT_USERNAME = 'vctopup_test_bot';
@@ -144,6 +145,7 @@ test('integrationStatus is ready with real-looking env values and never leaks se
   assert.equal(s.provider, 'shop2topup');
   assert.equal(s.ready, true, `blockers: ${s.blockers.join(', ')}`);
   assert.equal(s.checks.partnerSkus, true);
+  assert.equal(config.shop2topupConfig().retailMultiplier, 1.5, 'provider cost is marked up by 50%');
   assert.equal(s.webhookSignatureHeader, 'X-Shop2Topup-Signature');
   assert.ok(s.webhookUrl.endsWith('/api/payments/partner-callback'));
   const serialized = JSON.stringify(s);
