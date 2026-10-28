@@ -40,6 +40,19 @@
 }
 .detail-main .preview-product-badge { position: static; max-width: 100%; }
 .pk-preview-label { color: #fbbf24; font-size: .58rem; font-weight: 800; line-height: 1.2; text-transform: uppercase; }
+.preview-checkout-notice { align-items: flex-start; }
+.preview-checkout-notice > div { display: grid; gap: 5px; }
+.preview-checkout-notice p { margin: 0; line-height: 1.65; }
+.preview-checkout-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.preview-checkout-step .panel-head h2 { display: flex; align-items: center; gap: 9px; font-size: .95rem; }
+.preview-checkout-step .panel-head h2 svg { color: var(--accent, #a78bfa); }
+.preview-checkout-step .panel-body { min-height: 122px; display: flex; flex-direction: column; align-items: flex-start; gap: 13px; }
+.preview-checkout-step .preview-product-badge { position: static; max-width: 100%; }
+.preview-checkout-footnote { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: .78rem; line-height: 1.55; }
+.preview-checkout-footnote svg { flex: 0 0 auto; margin-top: 2px; }
+.preview-checkout-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.preview-detail-notice { align-items: flex-start; }
+.preview-detail-notice > div { display: flex; flex-direction: column; align-items: flex-start; }
 
 /* ------------------------------------------------------------- page header */
 .page-head { position: relative; padding: 46px 0 34px; border-bottom: 1px solid var(--line); overflow: hidden; }
@@ -543,11 +556,17 @@
 .setup-footnote { display: flex; align-items: flex-start; gap: 9px; max-width: 760px; margin: 18px auto 0; color: #8893ad; font-size: .74rem; line-height: 1.65; }
 .setup-footnote svg { flex: none; margin-top: 1px; color: #a78bfa; }
 @media (max-width: 900px) {
+  .preview-checkout-grid { grid-template-columns: 1fr 1fr; }
+  .preview-checkout-step:last-child { grid-column: 1 / -1; }
   .hero-grid { min-height: 500px; gap: 18px; }
   .setup-grid { gap: 10px; }
   .setup-card { padding: 17px; }
 }
 @media (max-width: 700px) {
+  .preview-checkout-grid { grid-template-columns: 1fr; }
+  .preview-checkout-step:last-child { grid-column: auto; }
+  .preview-checkout-actions { align-items: stretch; flex-direction: column; }
+  .preview-checkout-actions .btn { justify-content: center; }
   .hero { padding-top: 32px; }
   .hero-grid { min-height: auto; gap: 8px; }
   .hero-copy { padding-bottom: 8px; }

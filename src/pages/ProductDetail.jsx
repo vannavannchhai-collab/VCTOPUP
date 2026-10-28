@@ -162,7 +162,11 @@ export default function ProductDetail() {
               </div>
             </div>
 
-            {boot.previewMode ? <div className="alert alert-info" style={{ marginTop: 18 }}><Info size={16} /><span>{t('live.previewUnavailable')}</span></div> : <div className="detail-block">
+            {boot.previewMode ? <div className="alert alert-info preview-detail-notice" style={{ marginTop: 18 }}>
+              <Info size={16} /><div><span>{t('live.previewUnavailable')}</span>
+                <Link to="/checkout" className="btn btn-outline btn-xs" style={{ marginTop: 10 }}>{t('live.previewCheckoutLink')}</Link>
+              </div>
+            </div> : <div className="detail-block">
               <h3><span className="step">2</span> {t('p.account')}</h3>
               <div className="form-group" style={{ marginBottom: 16 }}>
                 <label className="field-label">{L(product.idLabel)}</label>
