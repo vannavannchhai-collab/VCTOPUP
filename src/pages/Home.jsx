@@ -24,17 +24,17 @@ function Hero() {
     <section className="hero">
       <div className="container hero-grid">
         <div className="hero-copy">
-          <div className="hero-badge animate-fade-up"><span className="dot"><Zap size={12} fill="currentColor" /></span>{t('hero.badge')}</div>
+          <div className="hero-badge animate-fade-up"><span className="dot"><Zap size={12} fill="currentColor" /></span>{boot.previewMode ? t('live.previewBadge') : t('hero.badge')}</div>
           <h1 className="animate-fade-up" style={{ animationDelay: '.06s' }}>
             <span className="line">{t('hero.title1')}</span>
             <span className="line gradient-text">{t('hero.title2')}</span>
           </h1>
-          <p className="hero-subtitle animate-fade-up" style={{ animationDelay: '.12s' }}>{t('hero.subtitle')}</p>
+          <p className="hero-subtitle animate-fade-up" style={{ animationDelay: '.12s' }}>{boot.previewMode ? t('live.previewHero') : t('hero.subtitle')}</p>
           <div className="hero-ctas animate-fade-up" style={{ animationDelay: '.18s' }}>
             <Link to={catalog.length ? '/shop' : '/contact'} className="btn btn-primary btn-lg">
-              <Zap size={18} fill="currentColor" /> {catalog.length ? t('hero.cta') : t('live.setupContact')}
+              <Zap size={18} fill="currentColor" /> {boot.previewMode ? t('live.previewBrowse') : catalog.length ? t('hero.cta') : t('live.setupContact')}
             </Link>
-            {catalog.length > 0 && <Link to="/#how" className="btn btn-outline btn-lg"><Play size={16} fill="currentColor" /> {t('hero.cta2')}</Link>}
+            {catalog.length > 0 && !boot.previewMode && <Link to="/#how" className="btn btn-outline btn-lg"><Play size={16} fill="currentColor" /> {t('hero.cta2')}</Link>}
           </div>
           {!catalog.length && <div className="alert alert-info live-catalog-notice"><LockKeyhole size={16} /><span>{t('live.catalogNotReady')}</span></div>}
         </div>
@@ -101,19 +101,20 @@ function Categories({ products }) {
 }
 
 function HowItWorks() {
-  const { t } = useStore();
+  const { t, boot } = useStore();
   return (
     <section className="section" id="how" style={{ background: 'linear-gradient(180deg, transparent, rgba(109,92,255,.045), transparent)' }}>
       <div className="container">
-        <SectionHead eyebrow="SIMPLE STEPS" title={t('s.how')} subtitle={t('s.howSub')} />
+        <SectionHead eyebrow={boot.previewMode ? t('live.previewBadge') : 'SIMPLE STEPS'} title={boot.previewMode ? t('live.previewSection') : t('s.how')}
+          subtitle={boot.previewMode ? t('live.previewUnavailable') : t('s.howSub')} />
         <div className="how-grid">
           {[1, 2, 3, 4].map((i) => {
             const I = HOW_ICONS[i - 1];
             return (
               <Reveal className="how-step" key={i} delay={i * 90}>
                 <div className="num">{String(i).padStart(2, '0')}<span className="hide"><I /></span></div>
-                <h3>{t(`how.${i}t`)}</h3>
-                <p>{t(`how.${i}d`)}</p>
+                <h3>{boot.previewMode ? t(`live.previewStep${i}`) : t(`how.${i}t`)}</h3>
+                <p>{boot.previewMode ? t(`live.previewStep${i}d`) : t(`how.${i}d`)}</p>
               </Reveal>
             );
           })}
@@ -129,35 +130,39 @@ function Payments() {
   return (
     <section className="section">
       <div className="container">
-        <SectionHead eyebrow="PAY YOUR WAY" title={t('s.payments')} subtitle={t('s.paymentsSub')} />
+        <SectionHead eyebrow={boot.previewMode ? t('live.previewBadge') : 'PAY YOUR WAY'}
+          title={boot.previewMode ? t('live.previewPaymentsTitle') : t('s.payments')}
+          subtitle={boot.previewMode ? t('live.previewPaymentsBody') : t('s.paymentsSub')} />
         <div className="pay-grid">
           {boot.paymentMethods.map((m, i) => (
             <Reveal className="pay-card" key={m.id} delay={i * 60}>
               <strong>{m.name}</strong>
-              <small>{m.kind === 'khqr' ? 'KHQR' : t('pay.paymentMethod')}</small>
+              <small>{boot.previewMode ? t('live.previewBadge') : m.kind === 'khqr' ? 'KHQR' : t('pay.paymentMethod')}</small>
             </Reveal>
           ))}
         </div>
-        <div className="khqr-note"><ShieldCheck size={15} /> {t('pay.secureNote')}</div>
+        <div className="khqr-note"><ShieldCheck size={15} /> {boot.previewMode ? t('live.previewUnavailable') : t('pay.secureNote')}</div>
       </div>
     </section>
   );
 }
 
 function WhyUs() {
-  const { t } = useStore();
+  const { t, boot } = useStore();
   return (
     <section className="section" style={{ background: 'linear-gradient(180deg, rgba(34,211,238,.035), transparent)' }}>
       <div className="container">
-        <SectionHead eyebrow="WHY US" title={t('s.why')} subtitle={t('s.whySub')} />
+        <SectionHead eyebrow={boot.previewMode ? t('live.previewBadge') : 'WHY US'}
+          title={boot.previewMode ? t('live.previewWhyTitle') : t('s.why')}
+          subtitle={boot.previewMode ? t('live.previewWhyBody') : t('s.whySub')} />
         <div className="why-grid">
           {[1, 2, 3, 4].map((i) => {
             const I = WHY_ICONS[i - 1];
             return (
               <Reveal className="why-card" key={i} delay={i * 65}>
                 <span className="wi"><I size={22} /></span>
-                <h3>{t(`why.${i}t`)}</h3>
-                <p>{t(`why.${i}d`)}</p>
+                <h3>{boot.previewMode ? t(`live.previewWhy${i}`) : t(`why.${i}t`)}</h3>
+                <p>{boot.previewMode ? t(`live.previewWhy${i}d`) : t(`why.${i}d`)}</p>
               </Reveal>
             );
           })}
@@ -283,7 +288,7 @@ export default function Home() {
 
       <section className="section-sm" id="featured">
         <div className="container">
-          <SectionHead eyebrow="TOP PICKS" title={t('s.featured')} subtitle={t('s.featuredSub')}
+          <SectionHead eyebrow={boot.previewMode ? t('live.previewSection') : 'TOP PICKS'} title={boot.previewMode ? t('live.previewSection') : t('s.featured')} subtitle={boot.previewMode ? t('live.previewHero') : t('s.featuredSub')}
             action="/shop" actionText={t('c.viewAll')} />
           <div className="product-grid">
             {featured.length ? featured.map((p, i) => <ProductCard key={p.id} product={p} delay={(i % 4) * 60} />)
@@ -296,7 +301,7 @@ export default function Home() {
 
       <section className="section-sm" id="popular">
         <div className="container">
-          <SectionHead eyebrow="BEST SELLERS" title={t('s.popular')} subtitle={t('s.popularSub')}
+          <SectionHead eyebrow={boot.previewMode ? t('live.previewSection') : 'BEST SELLERS'} title={boot.previewMode ? t('live.previewBrowse') : t('s.popular')} subtitle={boot.previewMode ? t('live.previewHero') : t('s.popularSub')}
             action="/shop?sort=popular" actionText={t('c.viewAll')} />
           <div className="product-grid">
             {popular.length ? popular.map((p, i) => <ProductCard key={p.id} product={p} delay={(i % 4) * 60} />)
@@ -313,10 +318,10 @@ export default function Home() {
       <section className="section-tight">
         <div className="container">
           <Reveal className="cta-band">
-            <h2>{t('s.cta')}</h2>
-            <p>{t('s.ctaSub')}</p>
+            <h2>{boot.previewMode ? t('live.previewCtaTitle') : t('s.cta')}</h2>
+            <p>{boot.previewMode ? t('live.previewCtaBody') : t('s.ctaSub')}</p>
             <div className="row center gap-12 wrap">
-              <Link to="/shop" className="btn btn-primary btn-lg"><Zap size={18} fill="currentColor" /> {t('s.ctaBtn')}</Link>
+              <Link to="/shop" className="btn btn-primary btn-lg"><Zap size={18} fill="currentColor" /> {boot.previewMode ? t('live.previewCtaButton') : t('s.ctaBtn')}</Link>
               <Link to="/track" className="btn btn-outline btn-lg">{t('nav.track')} <ArrowRight size={16} /></Link>
             </div>
           </Reveal>

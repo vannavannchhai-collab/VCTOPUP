@@ -2,6 +2,45 @@
    shop, product, cart, checkout, order, account, admin, auth
    ============================================================================ */
 
+/* -------------------------------------------------------- catalog preview */
+.preview-mode-banner {
+  background: linear-gradient(100deg, #402d0a, #593b10);
+  border-bottom: 1px solid rgba(251, 191, 36, .42);
+  color: #fef3c7;
+  position: sticky;
+  top: var(--header-h);
+  z-index: 45;
+}
+.preview-mode-banner-inner {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+.preview-mode-banner-inner > svg { flex: 0 0 auto; color: #fbbf24; }
+.preview-mode-banner-inner div { display: flex; flex-direction: column; gap: 2px; }
+.preview-mode-banner-inner strong { font-size: .82rem; letter-spacing: .01em; }
+.preview-mode-banner-inner span { color: #fde68a; font-size: .75rem; line-height: 1.5; }
+.preview-product-badge {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  z-index: 5;
+  max-width: calc(100% - 36px);
+  white-space: normal;
+  line-height: 1.35;
+  background: #854d0e;
+  border: 1px solid rgba(253, 224, 71, .52);
+  color: #fef3c7;
+  font-size: .63rem;
+  font-weight: 800;
+  letter-spacing: .025em;
+}
+.detail-main .preview-product-badge { position: static; max-width: 100%; }
+.pk-preview-label { color: #fbbf24; font-size: .58rem; font-weight: 800; line-height: 1.2; text-transform: uppercase; }
+
 /* ------------------------------------------------------------- page header */
 .page-head { position: relative; padding: 46px 0 34px; border-bottom: 1px solid var(--line); overflow: hidden; }
 .page-head::before { content: ''; position: absolute; width: 480px; height: 300px; border-radius: 50%; background: radial-gradient(circle, rgba(109,92,255,.2), transparent 65%); top: -180px; left: 20%; filter: blur(24px); }

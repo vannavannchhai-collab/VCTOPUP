@@ -19,7 +19,7 @@ import {
   signToken, verifyToken, uid, orderCode, publicUser,
   readFresh, transact, ensureStore,
 } from './db.js';
-import { integrationStatus, assertLiveReady, LiveNotReadyError, isLive, partnerConfig, shop2topupConfig } from './config.js';
+import { integrationStatus, assertLiveReady, LiveNotReadyError, isLive, catalogPreview, partnerConfig, shop2topupConfig } from './config.js';
 import { isShop2TopupItemId } from './credentials.js';
 import { validateOrderRecipients } from './partner.js';
 import { authProviderConfig, verifyGoogleCredential, verifyTelegramLogin } from './authProviders.js';
@@ -99,8 +99,21 @@ function normalizeOrderItems(db, rawItems) {
 
 // ================================================================ PUBLIC API
 function customerCatalog() {
-  if (!isLive || !integrationStatus().ready || partnerConfig().provider !== 'shop2topup') return [];
   const db = getDB();
+  if (catalogPreview) {
+    return db.products.map((product) => {
+      const packages = (product.packages || []).map((pkg) => ({
+        ...pkg, partnerSku: null, providerCost: null, providerPriceCheckedAt: null,
+        oldPrice: null, bonus: null, popular: false, previewOnly: true,
+      }));
+      return { ...product, packages, minPrice: packages.length ? Math.min(...packages.map((pkg) => pkg.price)) : null,
+        desc: { kh: 'កាតាឡុកសម្រាប់មើលតែប៉ុណ្ណោះ។ មិនមែនជាតម្លៃផ្លូវការ ឬការផ្តល់ជូនដែលអាចទិញបានទេ។', en: 'Catalog preview only. This is not an official price or purchasable offer.' },
+        instructions: { kh: ['នេះជាកាតាឡុកសាកមើលប៉ុណ្ណោះ។', 'មិនអាចបញ្ជាទិញ ឬបញ្ចូលគណនីបានទេ។'], en: ['This is a catalog preview only.', 'Orders and account top-ups are disabled.'] },
+        delivery: { kh: 'មិនមានការបញ្ចូលទេ — មើលសាកល្បងប៉ុណ្ណោះ', en: 'No fulfillment — preview only' },
+        sold: 0, rating: null, tag: null, featured: false, popular: false, previewOnly: true };
+    });
+  }
+  if (!isLive || !integrationStatus().ready || partnerConfig().provider !== 'shop2topup') return [];
   const maxAgeMs = Number(process.env.SHOP2TOPUP_PRICE_MAX_AGE_HOURS || 24) * 60 * 60_000;
   return db.products.map((product) => {
     const packages = (product.packages || []).filter((pk) => {
@@ -137,6 +150,7 @@ api.get('/bootstrap', (_req, res) => {
   res.json({
     ok: true,
     payment: integrationStatus(),
+    previewMode: catalogPreview,
     settings: settingsSnapshot,
     categories: db.categories.filter((c) => products.some((p) => p.category === c.id)),
     paymentMethods: db.paymentMethods,
@@ -199,6 +213,7 @@ api.post('/promo/validate', (req, res) => {
 
 api.post('/orders', asyncH(async (req, res) => {
   await ensureStore();
+  if (catalogPreview) return fail(res, 503, 'Catalog preview only: checkout is disabled and no order was created.');
   if (!isLive) return fail(res, 503, 'Real payments are not enabled. No simulated or test orders are accepted.');
   const db = await readFresh();
   const { customer = {}, payment = {}, promoCode = '', note = '' } = req.body;

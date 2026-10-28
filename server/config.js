@@ -16,6 +16,9 @@ const env = process.env;
 
 export const PAYMENT_MODE = (env.PAYMENT_MODE || 'live').toLowerCase() === 'sandbox' ? 'sandbox' : 'live';
 export const isLive = PAYMENT_MODE === 'live';
+// Local-only catalog preview; production/Vercel always disables it. It may
+// render template products and sample prices, but never accepts an order.
+export const catalogPreview = env.CATALOG_PREVIEW === 'true' && env.NODE_ENV !== 'production' && !env.VERCEL;
 
 export const hasDurableStore = () => isPostgresUrl(env.DATABASE_URL);
 export const hasRealSecret = () => isStrongSecret(env.VC_SECRET, 32);

@@ -83,7 +83,7 @@ function Header() {
               <Link to="/login" className="btn btn-outline btn-sm" style={{ height: 38 }}>{t('nav.login')}</Link>
             )}
             {boot.productCount > 0 && <Link to="/shop" className="btn btn-primary btn-sm header-cta" style={{ height: 38 }}>
-              <Zap size={14} fill="currentColor" /> {t('hero.cta')}
+              <Zap size={14} fill="currentColor" /> {boot.previewMode ? t('live.previewBrowse') : t('hero.cta')}
             </Link>}
             <button className="icon-btn mobile-menu-btn" onClick={() => setMenuOpen((v) => !v)} aria-label={t('nav.menu')}>
               {menuOpen ? <X size={19} /> : <Menu size={19} />}
@@ -122,10 +122,10 @@ function Header() {
 
 /* ------------------------------------------------------------ cart drawer */
 function CartDrawer() {
-  const { t, cartOpen, setCartOpen, cart, removeFromCart, updateQty, clearCart, cartSubtotal, promo, rate } = useStore();
+  const { t, cartOpen, setCartOpen, cart, removeFromCart, updateQty, clearCart, cartSubtotal, promo, rate, boot } = useStore();
   const navigate = useNavigate();
   if (!cartOpen) return null;
-  const discount = promo ? (promo.type === 'percent' ? cartSubtotal * promo.value / 100 : Math.min(promo.value, cartSubtotal)) : 0;
+  const discount = !boot.previewMode && promo ? (promo.type === 'percent' ? cartSubtotal * promo.value / 100 : Math.min(promo.value, cartSubtotal)) : 0;
   const total = Math.max(0, cartSubtotal - discount);
   return (
     <>
@@ -170,9 +170,9 @@ function CartDrawer() {
           <div className="drawer-foot">
             {promo && <div className="summary-row" style={{ color: '#6ee7b7' }}><span>{t('c.discount')} ({promo.code})</span><span>-{usd(discount)}</span></div>}
             <div className="summary-row total"><span>{t('c.total')}</span><span>{usd(total)} {rate && <span className="tiny text-dim" style={{ fontWeight: 400 }}>≈ {khr(total, rate)}</span>}</span></div>
-            <button className="btn btn-primary btn-block btn-lg" style={{ marginTop: 14 }}
+            <button className="btn btn-primary btn-block btn-lg" style={{ marginTop: 14 }} disabled={boot.previewMode}
               onClick={() => { setCartOpen(false); navigate('/checkout'); }}>
-              {t('cart.checkout')} <ArrowRight size={17} />
+              {boot.previewMode ? t('live.previewBadge') : t('cart.checkout')} <ArrowRight size={17} />
             </button>
             <button className="btn btn-ghost btn-block btn-sm" style={{ marginTop: 8 }} onClick={clearCart}>
               <Trash2 size={13} /> {t('cart.clear')}
@@ -268,9 +268,15 @@ function BackToTop() {
 }
 
 export default function Layout({ children }) {
+  const { boot, t } = useStore();
   return (
     <>
       <Header />
+      {boot.previewMode && <div className="preview-mode-banner" role="status">
+        <div className="container preview-mode-banner-inner"><Info size={17} />
+          <div><strong>{t('live.previewBannerTitle')}</strong><span>{t('live.previewBannerBody')}</span></div>
+        </div>
+      </div>}
       <main style={{ minHeight: '60vh' }}>{children}</main>
       <Footer />
       <CartDrawer />

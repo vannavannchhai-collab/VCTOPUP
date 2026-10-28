@@ -19,7 +19,7 @@ const DEFAULT_BOOT = {
     address: { kh: '', en: '' }, stats: { orders: 0, customers: 0, games: 0, uptime: null },
   },
   categories: [], paymentMethods: [], reviews: [], faqs: [],
-  featured: [], popular: [], productCount: 0,
+  featured: [], popular: [], productCount: 0, previewMode: false,
   payment: { mode: 'live', live: false, ready: false, blockers: ['Live configuration status unavailable'], checks: {} },
 };
 

@@ -9,7 +9,7 @@ import { usd, khr } from '../lib/format.js';
 import { ProductArt, Price, PageHead } from '../components/ui.jsx';
 
 export default function CartPage() {
-  const { t, cart, removeFromCart, updateQty, clearCart, cartSubtotal, rate } = useStore();
+  const { t, cart, removeFromCart, updateQty, clearCart, cartSubtotal, rate, boot } = useStore();
   const navigate = useNavigate();
 
   const total = cartSubtotal;
@@ -59,7 +59,7 @@ export default function CartPage() {
           {cart.length > 0 && (
             <div className="alert alert-info" style={{ marginTop: 18 }}>
               <Info size={16} />
-              <span>{t('p.secure')} · {t('s.paymentsSub')}</span>
+              <span>{boot.previewMode ? t('live.previewUnavailable') : `${t('p.secure')} · ${t('s.paymentsSub')}`}</span>
             </div>
           )}
           <div style={{ marginTop: 22 }}>
@@ -72,12 +72,12 @@ export default function CartPage() {
             <div className="panel-head"><h2><Tag size={18} /> {t('cart.summary')}</h2></div>
             <div className="panel-body">
               <div className="summary-row"><span>{t('c.subtotal')}</span><span>{usd(cartSubtotal)}</span></div>
-              <div className="summary-row"><span>{t('p.delivery')}</span><span className="text-dim">{t('live.providerDelivery')}</span></div>
+              <div className="summary-row"><span>{t('p.delivery')}</span><span className="text-dim">{boot.previewMode ? t('live.previewBadge') : t('live.providerDelivery')}</span></div>
               <div className="summary-row total"><span>{t('c.total')}</span><Price value={total} size="lg" rate={rate} /></div>
 
               <button className="btn btn-primary btn-block btn-lg" style={{ marginTop: 20 }}
-                disabled={cart.length === 0} onClick={() => navigate('/checkout')}>
-                {t('cart.checkout')} <ArrowRight size={17} />
+                disabled={cart.length === 0 || boot.previewMode} onClick={() => navigate('/checkout')}>
+                {boot.previewMode ? t('live.previewBadge') : t('cart.checkout')} <ArrowRight size={17} />
               </button>
               <p className="text-center tiny text-dim" style={{ marginTop: 12 }}><ShieldCheck size={12} style={{ verticalAlign: -2, marginRight: 5 }} />{t('p.secure')}</p>
             </div>
