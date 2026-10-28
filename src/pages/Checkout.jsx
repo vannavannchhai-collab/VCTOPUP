@@ -63,15 +63,41 @@ export default function Checkout() {
     } finally { setSubmitting(false); }
   };
 
-  if (boot.previewMode) return (
-    <>
-      <PageHead title={t('co.title')} crumbs={[]} />
-      <div className="container" style={{ padding: '60px 0 100px' }}>
-        <div className="alert alert-info"><LockKeyhole size={17} /><span>{t('live.previewUnavailable')}</span></div>
-        <Link to="/shop" className="btn btn-outline btn-sm" style={{ marginTop: 18 }}>{t('nav.shop')}</Link>
-      </div>
-    </>
-  );
+  if (boot.previewMode) {
+    const demoSteps = [
+      { icon: ShoppingCart, title: t('live.previewCheckoutStep1') },
+      { icon: CreditCard, title: t('live.previewCheckoutStep2') },
+      { icon: Zap, title: t('live.previewCheckoutStep3') },
+    ];
+    return (
+      <>
+        <PageHead title={t('co.title')} subtitle={t('live.previewBadge')} crumbs={[{ label: t('nav.shop'), to: '/shop' }]} />
+        <div className="container preview-checkout" style={{ paddingTop: 34, paddingBottom: 90 }}>
+          <div className="alert alert-warn preview-checkout-notice">
+            <LockKeyhole size={19} />
+            <div><strong>{t('live.previewBadge')}</strong><p>{t('live.previewCheckoutBody')}</p></div>
+          </div>
+          <div className="preview-checkout-grid">
+            {demoSteps.map(({ icon: StepIcon, title }, index) => (
+              <section className="panel preview-checkout-step" key={title}>
+                <div className="panel-head"><h2><StepIcon size={18} /> {title}</h2><span className="badge badge-gray">{index + 1}</span></div>
+                <div className="panel-body">
+                  <span className="badge preview-product-badge">{t('live.previewCheckoutDisabled')}</span>
+                  {index === 1 && <p className="preview-checkout-footnote"><Info size={15} /> {t('live.previewNoQr')}</p>}
+                  {index === 2 && <p className="preview-checkout-footnote"><Info size={15} /> {t('live.previewNoOrder')}</p>}
+                  {index === 0 && <p className="preview-checkout-footnote"><Info size={15} /> {t('live.previewWhy3d')}</p>}
+                </div>
+              </section>
+            ))}
+          </div>
+          <div className="preview-checkout-actions">
+            <Link to="/shop" className="btn btn-outline"><ArrowRight size={16} /> {t('live.previewBrowse')}</Link>
+            <button className="btn btn-primary" type="button" disabled><LockKeyhole size={16} /> {t('live.previewCheckoutDisabled')}</button>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   if (cart.length === 0) return (
     <>
